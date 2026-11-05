@@ -27,7 +27,7 @@ public sealed class MainViewModel : ObservableObject
             new(SessionGroup.Done, "COMPLETED", "✓", Palette.Green),
             new(SessionGroup.Failed, "FAILED", "✕", Palette.Red),
         ];
-        RefreshCommand = new RelayCommand(_ => _ = RefreshUsageAsync(force: true));
+        RefreshCommand = new RelayCommand(_ => { _ = RefreshUsageAsync(force: true); _ = RefreshAgentsAsync(); });
         RestartCommand = new RelayCommand(_ => Restart());
         OpenClaudeCommand = new RelayCommand(_ => OpenClaude());
         UsagePageCommand = new RelayCommand(_ => { RequestHide?.Invoke(); Terminal.OpenUrl("https://claude.ai/settings/usage"); });
@@ -35,6 +35,9 @@ public sealed class MainViewModel : ObservableObject
         UpdateCommand = new RelayCommand(_ => _ = UpdateAsync());
         ReleaseNotesCommand = new RelayCommand(_ => { if (_update is { } r) { RequestHide?.Invoke(); Terminal.OpenUrl(r.PageUrl); } });
         ClearModelCommand = new RelayCommand(_ => Background(() => _usage.ClearDefaultModel(), refreshUsage: true));
+        _selectTab = new RelayCommand(p => { if (p is AgentTabVM t) SelectTab(t); });
+        _openAgentSession = new RelayCommand(p => { if (p is AgentSessionVM s) OpenAgentSession(s); });
+        Tabs = [new AgentTabVM("Claude Code", null, _selectTab) { Selected = true }];
     }
 
     /// <summary>Running / percentages / needs-input count changed: redraw the tray icon.</summary>
@@ -56,13 +59,16 @@ public sealed class MainViewModel : ObservableObject
 
     // ---- header / footer
     string _plan = "";
-    public string Subtitle => (_plan.Length > 0 ? _plan + "  ·  " : "") + (Running ? "running" : "not running");
+    public string Title => SelectedAgent?.Name ?? "Claude Code";
+    public string Subtitle => SelectedAgent is { } a
+        ? AgentSubtitle(a)
+        : (_plan.Length > 0 ? _plan + "  ·  " : "") + (Running ? "running" : "not running");
     string? _error;
     public string? Error { get => _error; private set { if (Set(ref _error, value)) Raise(nameof(HasError)); } }
     public bool HasError => !string.IsNullOrEmpty(Error);
     public string Status { get => _status; private set => Set(ref _status, value); }
-    public bool CanRestart => Running && _usage.Tmux.Configured;
-    public string OpenText => Running ? "Open Claude Code" : "Start Claude Code";
+    public bool CanRestart => IsClaude && Running && _usage.Tmux.Configured;
+    public string OpenText => SelectedAgent is { } a ? $"Open {a.Name}" : Running ? "Open Claude Code" : "Start Claude Code";
     public ICommand RefreshCommand { get; }
     public ICommand RestartCommand { get; }
     public ICommand OpenClaudeCommand { get; }
@@ -140,6 +146,121 @@ public sealed class MainViewModel : ObservableObject
     public string ModelHeader => _live ? "MODEL · RUNNING SESSION" : "MODEL · NEW SESSIONS";
     public bool ShowClearModel => !_live;
 
+    // ---- agent tabs (OpenCode, Hermes): shown only when one of them is installed
+    readonly ICommand _selectTab, _openAgentSession;
+    readonly Dictionary<string, AgentReport> _reports = new();
+    int _agentsBusy;
+    List<AgentTabVM> _tabs = [];
+    public List<AgentTabVM> Tabs { get => _tabs; private set { Set(ref _tabs, value); Raise(nameof(ShowTabs)); } }
+    public bool ShowTabs => Tabs.Count > 1;
+    public Agent? SelectedAgent => Tabs.FirstOrDefault(t => t.Selected)?.Agent;
+    public bool IsClaude => SelectedAgent is null;
+    public bool IsAgent => SelectedAgent is not null;
+
+    List<AgentModelRow> _agentModels = [];
+    public List<AgentModelRow> AgentModels { get => _agentModels; private set => Set(ref _agentModels, value); }
+    List<DayRow> _agentDays = [];
+    public List<DayRow> AgentDays { get => _agentDays; private set => Set(ref _agentDays, value); }
+    List<ModelRow> _agentTokenModels = [];
+    public List<ModelRow> AgentTokenModels { get => _agentTokenModels; private set { Set(ref _agentTokenModels, value); Raise(nameof(HasAgentTokenModels)); } }
+    public bool HasAgentTokenModels => AgentTokenModels.Count > 0;
+    List<AgentSessionVM> _agentSessions = [];
+    public List<AgentSessionVM> AgentSessions { get => _agentSessions; private set { Set(ref _agentSessions, value); Raise(nameof(NoAgentSessions)); } }
+    public bool NoAgentSessions => AgentSessions.Count == 0;
+    string? _agentError;
+    public string? AgentError { get => _agentError; private set { if (Set(ref _agentError, value)) Raise(nameof(HasAgentError)); } }
+    public bool HasAgentError => !string.IsNullOrEmpty(AgentError);
+    public string AgentDaysHeader => "TOKENS BY DAY · THIS COMPUTER";
+
+    string AgentSubtitle(Agent a)
+    {
+        if (!_reports.TryGetValue(a.Id, out var r)) return "";
+        var model = r.Models.FirstOrDefault()?.Model ?? "";
+        int today = r.Sessions.Count(s => DateTimeOffset.FromUnixTimeMilliseconds(s.Updated).ToLocalTime().Date == DateTime.Today);
+        return string.Join("  ·  ", new[] { model, $"{Format.Human(r.Tokens.TodayTotal)} tokens today", $"{today} session{(today == 1 ? "" : "s")} today" }
+            .Where(x => x.Length > 0));
+    }
+
+    void SelectTab(AgentTabVM tab)
+    {
+        foreach (var t in Tabs) t.Selected = t == tab;
+        Raise(nameof(SelectedAgent)); Raise(nameof(IsClaude)); Raise(nameof(IsAgent));
+        Raise(nameof(Title)); Raise(nameof(Subtitle)); Raise(nameof(OpenText)); Raise(nameof(CanRestart));
+        ShowAgent();
+        if (tab.Agent is not null) _ = RefreshAgentsAsync();
+    }
+
+    /// <summary>Reads every installed agent off the UI thread (a few small SQLite queries each).</summary>
+    public async Task RefreshAgentsAsync()
+    {
+        if (Interlocked.Exchange(ref _agentsBusy, 1) == 1) return;
+        try
+        {
+            var now = DateTimeOffset.Now;
+            var result = await Task.Run(() => Agent.All.Where(a => a.Installed).Select(a => (a, r: a.Read(now))).ToList());
+            var ids = string.Join(',', result.Select(x => x.a.Id));
+            if (ids != string.Join(',', Tabs.Skip(1).Select(t => t.Agent!.Id)))
+            {
+                var keep = SelectedAgent?.Id;
+                var tabs = new List<AgentTabVM> { new("Claude Code", null, _selectTab) };
+                tabs.AddRange(result.Select(x => new AgentTabVM(x.a.Name, x.a, _selectTab)));
+                (tabs.FirstOrDefault(t => t.Agent?.Id == keep) ?? tabs[0]).Selected = true;
+                Tabs = tabs;
+                Raise(nameof(SelectedAgent)); Raise(nameof(IsClaude)); Raise(nameof(IsAgent));
+                Raise(nameof(Title)); Raise(nameof(OpenText)); Raise(nameof(CanRestart));
+            }
+            _reports.Clear();
+            foreach (var (a, r) in result) _reports[a.Id] = r;
+            ShowAgent();
+        }
+        catch (Exception e)
+        {
+            Log.Error("agents refresh", e);
+        }
+        finally { Interlocked.Exchange(ref _agentsBusy, 0); }
+    }
+
+    void ShowAgent()
+    {
+        Raise(nameof(Subtitle));
+        if (SelectedAgent is not { } a || !_reports.TryGetValue(a.Id, out var r))
+        {
+            AgentModels = []; AgentDays = []; AgentTokenModels = []; AgentSessions = []; AgentError = null;
+            return;
+        }
+        AgentError = r.Error;
+        AgentModels = r.Models.Select(m => new AgentModelRow(m.Role, m.Model, m.Where)).ToList();
+        double dayPeak = Math.Max(1, r.Tokens.Days.Select(d => d.Total).DefaultIfEmpty(0).Max());
+        AgentDays = r.Tokens.Days.Select(d => new DayRow(d.Today ? "Today" : d.Name, Format.Human(d.Total), d.Total / dayPeak * 100, d.Today)).ToList();
+        double modelPeak = Math.Max(1, r.Tokens.Models.Select(m => m.Total).DefaultIfEmpty(0).Max());
+        AgentTokenModels = r.Tokens.Models.Select(m => new ModelRow(m.Name, Format.Human(m.Total), m.Total / modelPeak * 100,
+            $"in {Format.Human(m.Input)} · out {Format.Human(m.Output)} · cache {Format.Human(m.Cache)}")).ToList();
+        var key = string.Join('\n', r.Sessions.Select(s => $"{s.Id}|{s.Group}|{s.Title}|{s.Updated}|{s.Tokens}"));
+        if (key != _agentSessionsKey)
+        {
+            _agentSessionsKey = key;
+            AgentSessions = r.Sessions.Select(s => new AgentSessionVM(s, s.Group switch
+            {
+                SessionGroup.Working => "▶",
+                SessionGroup.Failed => "✕",
+                _ => "✓",
+            }, s.Group switch
+            {
+                SessionGroup.Working => Palette.Blue,
+                SessionGroup.Failed => Palette.Red,
+                _ => Palette.Green,
+            }, _openAgentSession)).ToList();
+        }
+    }
+    string _agentSessionsKey = "";
+
+    void OpenAgentSession(AgentSessionVM s)
+    {
+        if (SelectedAgent is not { } a) return;
+        RequestHide?.Invoke();
+        Background(() => Terminal.OpenAgent(a, s.Info) ?? "");
+    }
+
     // ---- polling (called by the tray controller's timers)
 
     public async Task PollRunningAsync()
@@ -186,6 +307,7 @@ public sealed class MainViewModel : ObservableObject
     public void Tick()
     {
         foreach (var g in Groups) foreach (var s in g.Items) s.Tick();
+        foreach (var s in AgentSessions) s.Tick();
     }
 
     public void PanelClosed()
@@ -248,6 +370,7 @@ public sealed class MainViewModel : ObservableObject
     public void OpenClaude()
     {
         RequestHide?.Invoke();
+        if (SelectedAgent is { } a) { Background(() => Terminal.OpenAgent(a) ?? ""); return; }
         Background(() => Terminal.OpenClaude(_cfg) ?? "");
     }
 

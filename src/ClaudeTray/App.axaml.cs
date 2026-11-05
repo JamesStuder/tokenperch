@@ -65,7 +65,7 @@ public partial class App : Application
         TrayIcon.SetIcons(this, [_tray]);
 
         Every(TimeSpan.FromSeconds(2), () => _ = _vm.PollRunningAsync());
-        Every(TimeSpan.FromSeconds(60), () => _ = _vm.RefreshUsageAsync());
+        Every(TimeSpan.FromSeconds(60), () => { _ = _vm.RefreshUsageAsync(); _ = _vm.RefreshAgentsAsync(); });
         _sessionsTimer = Every(TimeSpan.FromSeconds(15), () => _ = _vm.RefreshSessionsAsync());
         Every(TimeSpan.FromSeconds(30), () => { if (_panel?.IsVisible == true) _vm.Tick(); });
         // Updates: first check a minute after start, then every 6 hours.
@@ -98,6 +98,7 @@ public partial class App : Application
         if (DateTime.UtcNow - _panel.HiddenAt < TimeSpan.FromMilliseconds(400)) return;
         _ = _vm.RefreshUsageAsync();
         _ = _vm.RefreshSessionsAsync();
+        _ = _vm.RefreshAgentsAsync();
         _vm.Tick();
         _sessionsTimer.Interval = TimeSpan.FromSeconds(3);
         _panel.ShowPanel();

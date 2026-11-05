@@ -78,6 +78,19 @@ public static class Terminal
         return null;
     }
 
+    /// <summary>Opens another agent (OpenCode, Hermes) in a terminal: new, or resuming one of its sessions.</summary>
+    public static string? OpenAgent(Agent agent, AgentSession? session = null)
+    {
+        if (Proc.Which(agent.Command) is not { } exe) return $"{agent.Name} isn't on PATH";
+        var title = session is null ? agent.Name : $"{agent.Name} · {Format.OneLine(session.Title, 40)}";
+        var cwd = session is { Directory.Length: > 0 } && Directory.Exists(session.Directory) ? session.Directory : null;
+        var cmd = Wrap([exe, .. session is null ? [] : agent.ResumeArgs(session)], title);
+        if (cmd is null) return "No terminal found";
+        if (OperatingSystem.IsLinux() && Proc.Which("systemd-run") is { } run)
+            cmd = [run, "--user", "--scope", "--quiet", "--collect", .. cmd];
+        return Proc.Start(cmd, cwd) is null ? "Couldn't start a terminal" : null;
+    }
+
     public static void OpenUrl(string url)
     {
         if (OperatingSystem.IsWindows())

@@ -123,4 +123,9 @@ public partial class PanelWindow : Window
         if (e.Source is Visual v && v.FindAncestorOfType<Button>(includeSelf: true) is not null) return;
         if ((sender as Control)?.DataContext is SessionVM s) s.Open.Execute(null);
     }
+
+    void AgentSessionTapped(object? sender, TappedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is AgentSessionVM s) s.Open.Execute(s);
+    }
 }

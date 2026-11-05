@@ -59,10 +59,23 @@
           <StackPanel Orientation="Horizontal" Spacing="12">
             <Image Source="/Assets/claude-tray.png" Width="40" Height="40" />
             <StackPanel VerticalAlignment="Center">
-              <TextBlock Text="Claude Code" FontSize="18" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" />
               <TextBlock Text="{Binding Subtitle}" Classes="dim" />
             </StackPanel>
           </StackPanel>
+          <ItemsControl ItemsSource="{Binding Tabs}" IsVisible="{Binding ShowTabs}" Margin="0,4,0,0">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="6" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="local:AgentTabVM">
+                <ToggleButton Content="{Binding Name}" IsChecked="{Binding Selected, Mode=OneWay}"
+                              Command="{Binding Select}" CommandParameter="{Binding}" Padding="14,4" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
           <TextBlock IsVisible="{Binding HasError}" Text="{Binding Error, StringFormat='⚠ {0}'}"
                      Foreground="#F5A524" TextWrapping="Wrap" />
           <Border IsVisible="{Binding UpdateAvailable}" Background="#263E9BEA" CornerRadius="6" Padding="10,6">
@@ -92,7 +105,90 @@
         </Grid>
       </Border>
 
-      <Grid ColumnDefinitions="1.25*,1,*">
+      <!-- another agent (OpenCode, Hermes): its sessions, models and tokens -->
+      <Grid ColumnDefinitions="1.25*,1,*" IsVisible="{Binding IsAgent}">
+        <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="14,0,14,14">
+            <TextBlock IsVisible="{Binding HasAgentError}" Text="{Binding AgentError}"
+                       Foreground="#F5A524" TextWrapping="Wrap" Margin="0,12,0,0" />
+            <TextBlock Classes="section" Text="SESSIONS · LAST 7 DAYS" IsVisible="{Binding !NoAgentSessions}" />
+            <ItemsControl ItemsSource="{Binding AgentSessions}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="local:AgentSessionVM">
+                  <Border Classes="row" Tapped="AgentSessionTapped" ToolTip.Tip="Open this session again in a terminal">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                      <TextBlock Grid.Column="0" FontWeight="Bold" VerticalAlignment="Top" Margin="2,1,0,0"
+                                 Text="{Binding Glyph}" Foreground="{Binding GlyphBrush}" />
+                      <StackPanel Grid.Column="1">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                          <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Grid.Column="1" Text="{Binding Ago}" Classes="dim" />
+                        </Grid>
+                        <TextBlock Text="{Binding Text}" Classes="dim" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock IsVisible="{Binding NoAgentSessions}" Text="No sessions in the last 7 days" Classes="dim" Margin="0,16,0,0" />
+          </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Column="1" Background="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+
+        <ScrollViewer Grid.Column="2" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="14,0,14,14">
+            <TextBlock Classes="section" Text="MODELS" />
+            <ItemsControl ItemsSource="{Binding AgentModels}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="local:AgentModelRow">
+                  <StackPanel Margin="0,2">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                      <TextBlock Text="{Binding Model}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Column="1" Text="{Binding Role}" Classes="dim" />
+                    </Grid>
+                    <TextBlock Text="{Binding Where}" Classes="dim" FontSize="11" TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBlock Classes="section" Text="{Binding AgentDaysHeader}" />
+            <ItemsControl ItemsSource="{Binding AgentDays}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="local:DayRow">
+                  <Grid ColumnDefinitions="48,*,64" ColumnSpacing="8" Margin="0,1">
+                    <TextBlock Text="{Binding Name}" Classes.dim="{Binding !Today}" FontWeight="{Binding Today, Converter={x:Static local:Converters.BoldIf}}" />
+                    <ProgressBar Grid.Column="1" Classes="meter" Value="{Binding Value}" VerticalAlignment="Center"
+                                 Opacity="{Binding Today, Converter={x:Static local:Converters.FullIf}}" />
+                    <TextBlock Grid.Column="2" Text="{Binding Total}" TextAlignment="Right"
+                               FontWeight="{Binding Today, Converter={x:Static local:Converters.BoldIf}}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBlock Classes="section" Text="TOKENS BY MODEL · TODAY · THIS COMPUTER" IsVisible="{Binding HasAgentTokenModels}" />
+            <ItemsControl ItemsSource="{Binding AgentTokenModels}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="local:ModelRow">
+                  <StackPanel Margin="0,2">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock Text="{Binding Name}" />
+                      <TextBlock Grid.Column="1" Text="{Binding Total}" FontWeight="Bold" />
+                    </Grid>
+                    <ProgressBar Classes="meter" Value="{Binding Value}" />
+                    <TextBlock Text="{Binding Split}" Classes="dim" FontSize="11" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+
+      <Grid ColumnDefinitions="1.25*,1,*" IsVisible="{Binding IsClaude}">
 
         <!-- left: background sessions -->
         <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Disabled">

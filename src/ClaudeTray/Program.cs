@@ -9,7 +9,7 @@ static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        if (args.Any(a => a is "--text" or "--sessions" or "--update" or "--version" or "--help" or "-h"))
+        if (args.Any(a => a is "--text" or "--sessions" or "--agents" or "--update" or "--version" or "--help" or "-h"))
             return Cli.Run(args);
 
         // One tray per user.
@@ -65,11 +65,31 @@ static class Cli
             if (r.Error is { } e) Console.WriteLine("note: " + e);
             return 0;
         }
+        if (args.Contains("--agents"))
+        {
+            var now = DateTimeOffset.Now;
+            var found = Agent.All.Where(a => a.Installed).ToList();
+            if (found.Count == 0) Console.WriteLine("No other agents found (OpenCode, Hermes).");
+            foreach (var a in found)
+            {
+                var r = a.Read(now);
+                Console.WriteLine($"== {a.Name}");
+                foreach (var m in r.Models) Console.WriteLine($"   {m.Role,-12} {m.Model}  ({m.Where})");
+                Console.WriteLine($"   Today: {Format.Human(r.Tokens.TodayTotal)} tokens ({Format.Human(r.Tokens.TodayOutput)} output)");
+                foreach (var m in r.Tokens.Models) Console.WriteLine($"      {m.Name}: {Format.Human(m.Total)}");
+                Console.WriteLine("   Week:  " + string.Join("  ", r.Tokens.Days.Select(d => $"{d.Name} {Format.Human(d.Total)}")));
+                foreach (var s in r.Sessions.Take(5))
+                    Console.WriteLine($"   {s.Group,-8} {Format.Ago(s.Updated, now),4}  {Format.OneLine(s.Title, 50)}  [{s.Model}, {Format.Human(s.Tokens)}]");
+                if (r.Error is { } e) Console.WriteLine("   note: " + e);
+            }
+            return 0;
+        }
         if (!args.Contains("--text"))
         {
             Console.WriteLine("claude-tray            start the tray icon\n" +
                               "claude-tray --text     print plan limits and today's tokens\n" +
                               "claude-tray --sessions list background sessions\n" +
+                              "claude-tray --agents   other agents (OpenCode, Hermes): models, tokens, sessions\n" +
                               "claude-tray --update   install the latest release from GitHub, if newer\n" +
                               "claude-tray --version\n\n" +
                               $"Settings: {AppConfig.FilePath}\nLog: {Log.FilePath}");

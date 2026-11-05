@@ -26,9 +26,15 @@ executable per platform; no .NET install needed on the target machine.
     *Tokens by model* (today, with the input / output / cache split), *Pace* (straight-line
     projection to each reset) and *Model* buttons.
   - Footer: **Refresh**, **Restart** (tmux only), **Open / Start Claude Code**.
+- **Other agents**: when [OpenCode](https://opencode.ai) or
+  [Hermes Agent](https://github.com/NousResearch/hermes-agent) is installed, the panel gets a tab
+  for each next to *Claude Code*. A tab shows that agent's sessions from the last 7 days (click
+  one to open it again in a terminal), its models (default, backup / other configured models,
+  and where they run) and its tokens by day and by model. Read-only: models are changed in the
+  agents themselves. The footer button opens the agent of the selected tab.
 - **Right click** (menu): Open Claude Code, the usage panel, Usage on claude.ai, Refresh,
   Settings file, Quit.
-- Terminal summary: `claude-tray --text`
+- Terminal summary: `claude-tray --text`; other agents: `claude-tray --agents`
 - **Updates**: when a new release is out, the panel says so; **Update** downloads it from GitHub,
   checks it against the release's SHA256SUMS, runs its installer and restarts the app. Turn the
   check off in *Settings → About*. From a terminal: `claude-tray --update`.
@@ -49,6 +55,8 @@ executable per platform; no .NET install needed on the target machine.
 | Limits | The endpoint Claude Code's `/usage` uses, called with Claude Code's own login (`.credentials.json`), at most every 5 minutes. The login is only read, never refreshed. Not a documented public API; it may change. |
 | Tokens | Claude Code's session logs on **this computer** (`projects/**/*.jsonl`), de-duplicated per message, by local day. Only changed files are re-read. Limits are account-wide; token counts are per computer (the usage endpoint reports only percentages). |
 | Sessions | `claude agents --json --all`, plus `jobs/<id>/state.json` for the status line and result. |
+| OpenCode | Its database `~/.local/share/opencode/opencode.db` (opened read-only): tokens of every reply plus the session totals, sessions; models from `~/.config/opencode/opencode.json(c)`. `XDG_DATA_HOME` / `XDG_CONFIG_HOME` are honoured. |
+| Hermes | Its database `~/.hermes/state.db` (read-only; `HERMES_HOME` is honoured): tokens per session and model, counted on the day the session was last active; models from `config.yaml` (`model:` and `fallback_providers:`). |
 
 `CLAUDE_CONFIG_DIR` is honoured.
 

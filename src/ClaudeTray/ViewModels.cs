@@ -44,6 +44,41 @@ public sealed record LimitRow(string Label, string Percent, double Value, IBrush
 public sealed record DayRow(string Name, string Total, double Value, bool Today);
 public sealed record ModelRow(string Name, string Total, double Value, string Split);
 
+public sealed record AgentModelRow(string Role, string Model, string Where);
+
+/// <summary>A tab at the top of the panel: Claude Code, or another agent (OpenCode, Hermes).</summary>
+public sealed class AgentTabVM(string name, Agent? agent, ICommand select) : ObservableObject
+{
+    bool _selected;
+    public string Name { get; } = name;
+    /// <summary>Null for the Claude Code tab.</summary>
+    public Agent? Agent { get; } = agent;
+    public ICommand Select { get; } = select;
+    public bool Selected { get => _selected; set => Set(ref _selected, value); }
+}
+
+/// <summary>One of another agent's sessions; a click opens it again in a terminal.</summary>
+public sealed class AgentSessionVM(AgentSession s, string glyph, IBrush brush, ICommand open) : ObservableObject
+{
+    public AgentSession Info { get; } = s;
+    public string Glyph { get; } = glyph;
+    public IBrush GlyphBrush { get; } = brush;
+    public string Name => Info.Title;
+    public ICommand Open { get; } = open;
+    public string Ago => Format.Ago(Info.Updated, DateTimeOffset.Now);
+    public string Text => string.Join(" · ", new[]
+    {
+        Info.Model,
+        Info.Tokens > 0 ? Format.Human(Info.Tokens) + " tokens" : "",
+        ShortDir(Info.Directory),
+    }.Where(x => x.Length > 0));
+
+    static string ShortDir(string d) =>
+        d.Length > 0 && d.StartsWith(Paths.Home, StringComparison.Ordinal) ? "~" + d[Paths.Home.Length..] : d;
+
+    public void Tick() => Raise(nameof(Ago));
+}
+
 public sealed class ModelChoiceVM(ModelChoice choice, bool current, ICommand pick) : ObservableObject
 {
     public ModelChoice Choice { get; } = choice;
