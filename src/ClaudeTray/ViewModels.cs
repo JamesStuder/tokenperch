@@ -58,13 +58,35 @@ public sealed class AgentTabVM(string name, Agent? agent, ICommand select) : Obs
 }
 
 /// <summary>One of another agent's sessions; a click opens it again in a terminal.</summary>
-public sealed class AgentSessionVM(AgentSession s, string glyph, IBrush brush, ICommand open) : ObservableObject
+public sealed class AgentSessionVM : ObservableObject
 {
-    public AgentSession Info { get; } = s;
-    public string Glyph { get; } = glyph;
-    public IBrush GlyphBrush { get; } = brush;
+    bool _confirming;
+
+    public AgentSessionVM(AgentSession s, string glyph, IBrush brush, ICommand open, Action<AgentSessionVM> remove)
+    {
+        Info = s;
+        Glyph = glyph;
+        GlyphBrush = brush;
+        Open = open;
+        Remove = new RelayCommand(_ =>
+        {
+            if (Confirming) { remove(this); return; }
+            Confirming = true;
+            _ = Task.Delay(4000).ContinueWith(_ => Avalonia.Threading.Dispatcher.UIThread.Post(() => Confirming = false));
+        });
+    }
+
+    public AgentSession Info { get; }
+    public string Glyph { get; }
+    public IBrush GlyphBrush { get; }
     public string Name => Info.Title;
-    public ICommand Open { get; } = open;
+    public ICommand Open { get; }
+    public ICommand Remove { get; }
+    public bool Confirming { get => _confirming; private set { if (Set(ref _confirming, value)) { Raise(nameof(RemoveText)); Raise(nameof(RemoveTip)); } } }
+    public string RemoveText => Confirming ? "Remove" : "✕";
+    public string RemoveTip => Confirming
+        ? "Click again to remove from this list (the agent keeps the session)"
+        : "Remove from list";
     public string Ago => Format.Ago(Info.Updated, DateTimeOffset.Now);
     public string Text => string.Join(" · ", new[]
     {

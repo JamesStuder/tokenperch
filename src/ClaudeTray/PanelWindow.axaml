@@ -116,7 +116,10 @@
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="local:AgentSessionVM">
                   <Border Classes="row" Tapped="AgentSessionTapped" ToolTip.Tip="Open this session again in a terminal">
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                      <Button Grid.Column="2" Content="{Binding RemoveText}" Command="{Binding Remove}"
+                              ToolTip.Tip="{Binding RemoveTip}" VerticalAlignment="Top"
+                              Padding="8,2" Background="Transparent" BorderThickness="0" />
                       <TextBlock Grid.Column="0" FontWeight="Bold" VerticalAlignment="Top" Margin="2,1,0,0"
                                  Text="{Binding Glyph}" Foreground="{Binding GlyphBrush}" />
                       <StackPanel Grid.Column="1">

@@ -153,6 +153,22 @@ public class AgentsTests : IDisposable
     }
 
     [Fact]
+    public void HiddenSessions_PersistAndDropIdsNoLongerListed()
+    {
+        var path = Path.Combine(_dir, "cfg", "hidden-sessions.json");
+        var h = new HiddenSessions(path);
+        h.Hide("opencode", "a", ["a", "b"]);
+        h.Hide("opencode", "gone", ["b", "gone"]);   // "a" is no longer listed: dropped
+        h.Hide("hermes", "x", ["x"]);
+
+        var reloaded = new HiddenSessions(path);
+        Assert.False(reloaded.IsHidden("opencode", "a"));
+        Assert.True(reloaded.IsHidden("opencode", "gone"));
+        Assert.True(reloaded.IsHidden("hermes", "x"));
+        Assert.False(reloaded.IsHidden("hermes", "gone"));
+    }
+
+    [Fact]
     public void Installed_OnlyWhenDatabaseExists() =>
         Assert.False(new HermesAgent(Path.Combine(_dir, "missing")).Installed);
 }

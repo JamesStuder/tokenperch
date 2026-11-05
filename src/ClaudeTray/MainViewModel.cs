@@ -149,6 +149,7 @@ public sealed class MainViewModel : ObservableObject
     // ---- agent tabs (OpenCode, Hermes): shown only when one of them is installed
     readonly ICommand _selectTab, _openAgentSession;
     readonly Dictionary<string, AgentReport> _reports = new();
+    readonly HiddenSessions _hidden = new();
     int _agentsBusy;
     List<AgentTabVM> _tabs = [];
     public List<AgentTabVM> Tabs { get => _tabs; private set { Set(ref _tabs, value); Raise(nameof(ShowTabs)); } }
@@ -235,11 +236,12 @@ public sealed class MainViewModel : ObservableObject
         double modelPeak = Math.Max(1, r.Tokens.Models.Select(m => m.Total).DefaultIfEmpty(0).Max());
         AgentTokenModels = r.Tokens.Models.Select(m => new ModelRow(m.Name, Format.Human(m.Total), m.Total / modelPeak * 100,
             $"in {Format.Human(m.Input)} · out {Format.Human(m.Output)} · cache {Format.Human(m.Cache)}")).ToList();
-        var key = string.Join('\n', r.Sessions.Select(s => $"{s.Id}|{s.Group}|{s.Title}|{s.Updated}|{s.Tokens}"));
+        var visible = r.Sessions.Where(s => !_hidden.IsHidden(a.Id, s.Id)).ToList();
+        var key = a.Id + "\n" + string.Join('\n', visible.Select(s => $"{s.Id}|{s.Group}|{s.Title}|{s.Updated}|{s.Tokens}"));
         if (key != _agentSessionsKey)
         {
             _agentSessionsKey = key;
-            AgentSessions = r.Sessions.Select(s => new AgentSessionVM(s, s.Group switch
+            AgentSessions = visible.Select(s => new AgentSessionVM(s, s.Group switch
             {
                 SessionGroup.Working => "▶",
                 SessionGroup.Failed => "✕",
@@ -249,8 +251,26 @@ public sealed class MainViewModel : ObservableObject
                 SessionGroup.Working => Palette.Blue,
                 SessionGroup.Failed => Palette.Red,
                 _ => Palette.Green,
-            }, _openAgentSession)).ToList();
+            }, _openAgentSession, RemoveAgentSession)).ToList();
         }
+    }
+
+    /// <summary>✕ → Remove: hides the session from the panel; nothing in the agent changes.</summary>
+    void RemoveAgentSession(AgentSessionVM s)
+    {
+        if (SelectedAgent is not { } a) return;
+        try
+        {
+            var listed = _reports.TryGetValue(a.Id, out var r) ? r.Sessions.Select(x => x.Id) : [];
+            _hidden.Hide(a.Id, s.Info.Id, listed);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Log.Error("hide agent session", e);
+            ShowStatus("Couldn't remove: " + e.Message);
+            return;
+        }
+        ShowAgent();
     }
     string _agentSessionsKey = "";
 

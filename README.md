@@ -29,7 +29,9 @@ executable per platform; no .NET install needed on the target machine.
 - **Other agents**: when [OpenCode](https://opencode.ai) or
   [Hermes Agent](https://github.com/NousResearch/hermes-agent) is installed, the panel gets a tab
   for each next to *Claude Code*. A tab shows that agent's sessions from the last 7 days (click
-  one to open it again in a terminal), its models (default, backup / other configured models,
+  one to open it again in a terminal; **✕** then **Remove** hides it from the list — the agent
+  keeps the session, its tokens still count, and the list is kept in `hidden-sessions.json` next
+  to `config.json`), its models (default, backup / other configured models,
   and where they run) and its tokens by day and by model. Read-only: models are changed in the
   agents themselves. The footer button opens the agent of the selected tab.
 - **Right click** (menu): Open Claude Code, the usage panel, Usage on claude.ai, Refresh,

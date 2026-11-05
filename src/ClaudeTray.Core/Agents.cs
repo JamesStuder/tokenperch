@@ -399,3 +399,45 @@ public sealed class HermesAgent : Agent
     public override List<string> ResumeArgs(AgentSession s) =>
         s.Directory.Length > 0 && Directory.Exists(s.Directory) ? ["--resume", s.Id, "--in", s.Directory] : ["--resume", s.Id];
 }
+
+/// <summary>
+/// Agent sessions removed from the panel (✕ → Remove). Only the panel's list changes: the agent's own
+/// history, its token counts and resuming the session from the agent itself are untouched.
+/// Stored in hidden-sessions.json next to config.json, as { "opencode": [ids], "hermes": [ids] }.
+/// </summary>
+public sealed class HiddenSessions
+{
+    readonly string _path;
+    readonly Dictionary<string, HashSet<string>> _ids = new();
+
+    public HiddenSessions(string? path = null)
+    {
+        _path = path ?? Path.Combine(Paths.ConfigDir, "hidden-sessions.json");
+        try
+        {
+            if (File.Exists(_path) && JsonSerializer.Deserialize<Dictionary<string, HashSet<string>>>(File.ReadAllText(_path)) is { } d)
+                _ids = d;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
+        {
+            Log.Error("hidden sessions", e);
+        }
+    }
+
+    public bool IsHidden(string agentId, string sessionId) =>
+        _ids.TryGetValue(agentId, out var s) && s.Contains(sessionId);
+
+    /// <summary>Hides a session. Ids of sessions the agent no longer lists (older than the panel's
+    /// 7 days, or deleted) are dropped at the same time, so the file stays small.</summary>
+    public void Hide(string agentId, string sessionId, IEnumerable<string> stillListed)
+    {
+        var keep = stillListed.ToHashSet();
+        if (!_ids.TryGetValue(agentId, out var set)) _ids[agentId] = set = [];
+        set.RemoveWhere(id => !keep.Contains(id));
+        set.Add(sessionId);
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        var tmp = _path + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(_ids, new JsonSerializerOptions { WriteIndented = true }));
+        File.Move(tmp, _path, overwrite: true);
+    }
+}
