@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Windows installer: waits for Claude Tray to exit before removing its folder (an update from 2.x left the old `Programs\ClaudeTray\claude-tray.exe` behind, still locked).
+
 ## 3.0.0 — 2026-11-05
 
 - Agents: **Start / Restart / Update**. The panel footer says *Start* or *Open* depending on whether the agent is running, and shows **Restart** while it runs (click twice: closes the agent's windows, restarts OpenCode's background service, and opens it again on its latest session). The menu has *Start / Open ▸* (with "(running)"), *Restart ▸* (running agents; Claude Code through tmux) and *Update <agent> to <version>*. Update checks (start, then every 6 h): pacman packages through `checkupdates` — Update opens a terminal with a full system update (`paru -Syu`, else `sudo pacman -Syu`), as Arch doesn't support updating one package alone; global npm packages through `npm view` — Update runs `npm install -g <package>@latest`. `tokenperch --agents --updates` prints it all.

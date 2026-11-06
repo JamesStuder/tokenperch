@@ -19,10 +19,17 @@ Get-Process tokenperch -ErrorAction SilentlyContinue | Stop-Process -Force
 
 # Token Perch was called Claude Tray before 3.0: remove that install (its settings are copied on first start).
 $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-Get-Process claude-tray -ErrorAction SilentlyContinue | Stop-Process -Force
+$old = Get-Process claude-tray -ErrorAction SilentlyContinue
+$old | Stop-Process -Force
+$old | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
 Remove-ItemProperty $run -Name 'ClaudeTray' -ErrorAction SilentlyContinue
 Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'Claude Tray.lnk') -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $env:LOCALAPPDATA 'Programs\ClaudeTray') -Recurse -Force -ErrorAction SilentlyContinue
+# Windows can hold the stopped program's file for a moment (2.x's updater also runs from that folder).
+$oldDir = Join-Path $env:LOCALAPPDATA 'Programs\ClaudeTray'
+for ($i = 0; $i -lt 10 -and (Test-Path $oldDir); $i++) {
+    Remove-Item $oldDir -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path $oldDir) { Start-Sleep -Milliseconds 500 }
+}
 Start-Sleep -Milliseconds 500
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 Copy-Item (Join-Path $src 'tokenperch.exe') $dest -Force
