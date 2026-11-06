@@ -75,6 +75,13 @@ static class Cli
                 var r = a.Read(now);
                 Console.WriteLine($"== {a.Name}");
                 foreach (var m in r.Models) Console.WriteLine($"   {m.Role,-12} {m.Model}  ({m.Where})");
+                var pids = AgentProcesses.Find(a);
+                Console.WriteLine($"   Running: {(pids.Count > 0 ? "yes (pid " + string.Join(", ", pids) + ")" : "no")}");
+                if (args.Contains("--updates"))
+                    Console.WriteLine("   Update:  " + (AgentUpdates.Check(a, force: true) is { } upd
+                        ? $"{upd.Installed} installed, newest {(upd.Latest.Length > 0 ? upd.Latest : upd.Installed)} via {upd.Method}"
+                          + (upd.Available ? " — UPDATE AVAILABLE: " + string.Join(" ", upd.Command) : "")
+                        : "no check (install method not recognised)"));
                 Console.WriteLine($"   Today: {Format.Human(r.Tokens.TodayTotal)} tokens ({Format.Human(r.Tokens.TodayOutput)} output)");
                 foreach (var m in r.Tokens.Models) Console.WriteLine($"      {m.Name}: {Format.Human(m.Total)}");
                 Console.WriteLine("   Week:  " + string.Join("  ", r.Tokens.Days.Select(d => $"{d.Name} {Format.Human(d.Total)}")));

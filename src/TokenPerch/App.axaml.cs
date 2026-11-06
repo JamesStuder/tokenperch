@@ -65,7 +65,7 @@ public partial class App : Application
         // Updates: first check a minute after start, then every 6 hours.
         DispatcherTimer.RunOnce(() => { if (_cfg.CheckForUpdates) _ = _vm.CheckForUpdateAsync(); }, TimeSpan.FromMinutes(1));
         var updates = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
-        updates.Tick += (_, _) => { if (_cfg.CheckForUpdates) _ = _vm.CheckForUpdateAsync(); };
+        updates.Tick += (_, _) => { if (_cfg.CheckForUpdates) { _ = _vm.CheckForUpdateAsync(); _ = _vm.CheckAgentUpdatesAsync(); } };
         updates.Start();
     }
 
@@ -82,9 +82,23 @@ public partial class App : Application
         _menu.Items.Clear();
         _menu.Items.Add(Item("Show panel", TogglePanel));
         var open = new NativeMenu();
-        open.Items.Add(Item("Claude Code", () => _vm.OpenClaude()));
-        foreach (var a in _vm.MenuAgents) open.Items.Add(Item(a.Name, () => _vm.OpenAgent(a)));
-        _menu.Items.Add(new NativeMenuItem("Open") { Menu = open });
+        open.Items.Add(Item(_vm.Running ? "Claude Code (running)" : "Claude Code", () => _vm.OpenClaude()));
+        foreach (var a in _vm.MenuAgents)
+            open.Items.Add(Item(_vm.IsAgentRunning(a) ? $"{a.Name} (running)" : a.Name, () => _vm.OpenAgent(a)));
+        _menu.Items.Add(new NativeMenuItem("Start / Open") { Menu = open });
+
+        // Restart: what is running (Claude Code only through its tmux pane).
+        var restart = new NativeMenu();
+        if (_vm.CanRestartClaude) restart.Items.Add(Item("Claude Code", () => _vm.RestartClaude()));
+        foreach (var a in _vm.MenuAgents.Where(_vm.IsAgentRunning)) restart.Items.Add(Item(a.Name, () => _vm.RestartAgent(a)));
+        if (restart.Items.Count > 0) _menu.Items.Add(new NativeMenuItem("Restart") { Menu = restart });
+
+        var updates = _vm.AvailableUpdates.ToList();
+        if (updates.Count > 0)
+        {
+            _menu.Items.Add(new NativeMenuItemSeparator());
+            foreach (var (a, u) in updates) _menu.Items.Add(Item($"Update {a.Name} to {u.Latest}", () => _vm.UpdateAgent(a)));
+        }
 
         var waiting = _vm.Waiting;
         if (waiting.Count > 0)

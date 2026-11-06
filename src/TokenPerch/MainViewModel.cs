@@ -35,6 +35,7 @@ public sealed class MainViewModel : ObservableObject
         UpdateCommand = new RelayCommand(_ => _ = UpdateAsync());
         ReleaseNotesCommand = new RelayCommand(_ => { if (_update is { } r) { RequestHide?.Invoke(); Terminal.OpenUrl(r.PageUrl); } });
         ClearModelCommand = new RelayCommand(_ => Background(() => _usage.ClearDefaultModel(), refreshUsage: true));
+        AgentUpdateCommand = new RelayCommand(_ => { if (SelectedAgent is { } ua) UpdateAgent(ua); });
         _selectTab = new RelayCommand(p => { if (p is AgentTabVM t) SelectTab(t); });
         _openAgentSession = new RelayCommand(p => { if (p is AgentSessionVM s) OpenAgentSession(s); });
         Tabs = [new AgentTabVM("Claude Code", null, _selectTab) { Selected = true }];
@@ -81,8 +82,82 @@ public sealed class MainViewModel : ObservableObject
     public string? Error { get => _error; private set { if (Set(ref _error, value)) Raise(nameof(HasError)); } }
     public bool HasError => !string.IsNullOrEmpty(Error);
     public string Status { get => _status; private set => Set(ref _status, value); }
-    public bool CanRestart => IsClaude && Running && _usage.Tmux.Configured;
-    public string OpenText => SelectedAgent is { } a ? $"Open {a.Name}" : Running ? "Open Claude Code" : "Start Claude Code";
+    public bool CanRestart => SelectedAgent is { } a ? IsAgentRunning(a) : Running && _usage.Tmux.Configured;
+    public string OpenText => SelectedAgent is { } a
+        ? (IsAgentRunning(a) ? $"Open {a.Name}" : $"Start {a.Name}")
+        : Running ? "Open Claude Code" : "Start Claude Code";
+    bool _confirmRestart;
+    public string RestartText => _confirmRestart ? "Click again to restart" : "Restart";
+    public string RestartTip => SelectedAgent is { } ra
+        ? $"Close {ra.Name} and open it again on its latest session (e.g. after an update)"
+        : "Restart Claude Code in its tmux pane and resume the same conversation";
+
+    // ---- agents: running, updates
+    HashSet<string> _runningAgents = [];
+    readonly Dictionary<string, AgentUpdate> _agentUpdates = new();
+    public bool IsAgentRunning(Agent a) => _runningAgents.Contains(a.Id);
+    public IEnumerable<(Agent Agent, AgentUpdate Update)> AvailableUpdates =>
+        _menuAgents.Where(a => _agentUpdates.TryGetValue(a.Id, out var u) && u.Available).Select(a => (a, _agentUpdates[a.Id]));
+    public bool AgentUpdateAvailable => SelectedAgent is { } a && _agentUpdates.TryGetValue(a.Id, out var u) && u.Available;
+    public string AgentUpdateText => SelectedAgent is { } a && _agentUpdates.TryGetValue(a.Id, out var u) && u.Available
+        ? $"{a.Name} {u.Latest} is available (you have {u.Installed})" : "";
+    public string AgentUpdateNote => SelectedAgent is { } a && _agentUpdates.TryGetValue(a.Id, out var u) ? u.Note : "";
+    public ICommand AgentUpdateCommand { get; private set; } = null!;
+    int _updatesBusy;
+
+    /// <summary>Checks the agents for new versions (pacman / npm; cached 6 h unless forced).</summary>
+    public async Task CheckAgentUpdatesAsync(bool force = false)
+    {
+        if (Interlocked.Exchange(ref _updatesBusy, 1) == 1) return;
+        try
+        {
+            var agents = _menuAgents.ToList();
+            var results = await Task.Run(() => agents.Select(a => (a, u: AgentUpdates.Check(a, force))).ToList());
+            foreach (var (a, u) in results)
+                if (u is null) _agentUpdates.Remove(a.Id); else _agentUpdates[a.Id] = u;
+            RaiseAgentState();
+            _menuKey = "";
+            MenuMaybeChanged();
+        }
+        catch (Exception e) { Log.Error("agent update check", e); }
+        finally { Interlocked.Exchange(ref _updatesBusy, 0); }
+    }
+
+    /// <summary>Opens a terminal running the agent's update (full system update for pacman packages).</summary>
+    public void UpdateAgent(Agent a)
+    {
+        if (!_agentUpdates.TryGetValue(a.Id, out var u)) return;
+        RequestHide?.Invoke();
+        Background(() => Terminal.RunVisible(u.Command, $"Update {a.Name}")
+            ?? $"Updating {a.Name} in a terminal — use Restart afterwards to run the new version.");
+        // Check again once the update has had time to finish.
+        _ = Task.Delay(TimeSpan.FromMinutes(3)).ContinueWith(_ => Dispatcher.UIThread.Post(() => _ = CheckAgentUpdatesAsync(force: true)));
+    }
+
+    /// <summary>Claude Code can be restarted from the menu when it runs in the configured tmux pane.</summary>
+    public bool CanRestartClaude => Running && _usage.Tmux.Configured;
+
+    public void RestartClaude()
+    {
+        RequestHide?.Invoke();
+        Background(() => _usage.Tmux.Restart());
+    }
+
+    /// <summary>Close the agent and open it again on its most recent session.</summary>
+    public void RestartAgent(Agent a)
+    {
+        RequestHide?.Invoke();
+        var latest = _reports.TryGetValue(a.Id, out var r)
+            ? r.Sessions.FirstOrDefault(s => !_hidden.IsHidden(a.Id, s.Id)) : null;
+        Background(() => AgentProcesses.Restart(a, latest) ?? "", refreshSessions: false);
+        _ = Task.Delay(4000).ContinueWith(_ => Dispatcher.UIThread.Post(() => _ = RefreshAgentsAsync()));
+    }
+
+    void RaiseAgentState()
+    {
+        Raise(nameof(CanRestart)); Raise(nameof(OpenText)); Raise(nameof(RestartTip));
+        Raise(nameof(AgentUpdateAvailable)); Raise(nameof(AgentUpdateText)); Raise(nameof(AgentUpdateNote));
+    }
     public ICommand RefreshCommand { get; }
     public ICommand RestartCommand { get; }
     public ICommand OpenClaudeCommand { get; }
@@ -201,6 +276,7 @@ public sealed class MainViewModel : ObservableObject
         foreach (var t in Tabs) t.Selected = t == tab;
         Raise(nameof(SelectedAgent)); Raise(nameof(IsClaude)); Raise(nameof(IsAgent));
         Raise(nameof(Title)); Raise(nameof(Subtitle)); Raise(nameof(OpenText)); Raise(nameof(CanRestart));
+        _confirmRestart = false; Raise(nameof(RestartText)); RaiseAgentState();
         ShowAgent();
         if (tab.Agent is not null) _ = RefreshAgentsAsync();
     }
@@ -239,7 +315,7 @@ public sealed class MainViewModel : ObservableObject
             var now = DateTimeOffset.Now;
             // Agents switched off in Settings → Agents are not read at all (no tab, no badge, no menu entry).
             var result = await Task.Run(() => Agent.All.Where(a => a.Installed && !_cfg.HiddenAgents.Contains(a.Id))
-                .Select(a => (a, r: a.Read(now))).ToList());
+                .Select(a => (a, r: a.Read(now), running: AgentProcesses.Running(a))).ToList());
             var ids = string.Join(',', result.Select(x => x.a.Id));
             if (ids != string.Join(',', Tabs.Skip(1).Select(t => t.Agent!.Id)))
             {
@@ -252,7 +328,11 @@ public sealed class MainViewModel : ObservableObject
                 Raise(nameof(Title)); Raise(nameof(OpenText)); Raise(nameof(CanRestart));
             }
             _reports.Clear();
-            foreach (var (a, r) in result) _reports[a.Id] = r;
+            foreach (var (a, r, _) in result) _reports[a.Id] = r;
+            var running = result.Where(x => x.running).Select(x => x.a.Id).ToHashSet();
+            bool runningChanged = !running.SetEquals(_runningAgents);
+            _runningAgents = running;
+            bool firstAgents = _menuAgents.Count == 0 && result.Count > 0;
             // Waiting sessions (not the ones removed from the list); the badge leaves out agents switched off for it.
             var waiting = result.SelectMany(x => x.r.Sessions
                 .Where(s => s.Group == SessionGroup.Needs && !_hidden.IsHidden(x.a.Id, s.Id))
@@ -267,8 +347,10 @@ public sealed class MainViewModel : ObservableObject
             _menuAgents = result.Select(x => x.a).ToList();
             _agentWaiting = waiting.Select(w => new WaitingItem($"{w.Agent.Name} · {Format.OneLine(w.Session.Title, 50)}",
                 () => { RequestHide?.Invoke(); Background(() => Terminal.OpenAgent(w.Agent, w.Session) ?? ""); })).ToList();
+            if (runningChanged) { RaiseAgentState(); _menuKey = ""; }
             MenuMaybeChanged();
             ShowAgent();
+            if (firstAgents && _cfg.CheckForUpdates) _ = CheckAgentUpdatesAsync();
         }
         catch (Exception e)
         {
@@ -349,6 +431,8 @@ public sealed class MainViewModel : ObservableObject
         Running = running;
         Raise(nameof(Subtitle)); Raise(nameof(CanRestart)); Raise(nameof(OpenText));
         TrayStateChanged?.Invoke();
+        _menuKey = "";
+        MenuMaybeChanged();   // the menu shows "(running)" and Restart ▸ Claude Code
     }
 
     public async Task RefreshUsageAsync(bool force = false)
@@ -491,8 +575,24 @@ public sealed class MainViewModel : ObservableObject
         Background(() => SessionsService.Remove(_cfg, _windows, s.Info.Id) is { } err ? "Couldn't remove: " + err : "", refreshSessions: true);
     }
 
+    /// <summary>Footer Restart: Claude Code in tmux, or the selected agent (asks once more: it closes the
+    /// agent's windows).</summary>
     void Restart()
     {
+        if (SelectedAgent is { } a)
+        {
+            if (!_confirmRestart)
+            {
+                _confirmRestart = true;
+                Raise(nameof(RestartText));
+                _ = Task.Delay(4000).ContinueWith(_ => Dispatcher.UIThread.Post(() => { _confirmRestart = false; Raise(nameof(RestartText)); }));
+                return;
+            }
+            _confirmRestart = false;
+            Raise(nameof(RestartText));
+            RestartAgent(a);
+            return;
+        }
         RequestHide?.Invoke();
         Background(() => _usage.Tmux.Restart());
     }

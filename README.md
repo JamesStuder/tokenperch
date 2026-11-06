@@ -41,7 +41,12 @@ executable per platform; no .NET install needed on the target machine.
   keeps the session, its tokens still count, and the list is kept in `hidden-sessions.json` next
   to `config.json`), its models (default, backup / other configured models,
   and where they run) and its tokens by day and by model. Read-only: models are changed in the
-  agents themselves. The footer button opens the agent of the selected tab.
+  agents themselves. The footer opens (or starts) the agent of the selected tab and, while it runs,
+  offers **Restart** (closes its windows, then reopens its latest session — e.g. after an update).
+  When a newer version exists, the tab shows **Update**: for Arch/CachyOS packages that is a full
+  system update in a terminal (`paru -Syu` or `sudo pacman -Syu`; Arch doesn't support updating one
+  package alone), for global npm installs `npm install -g <package>@latest`. Other installs aren't
+  checked.
 - **Right click** (menu): Open Claude Code, the usage panel, Usage on claude.ai, Refresh,
   Settings file, Quit.
 - Terminal summary: `tokenperch --text`; other agents: `tokenperch --agents`

@@ -63,6 +63,17 @@
               <TextBlock Text="{Binding Subtitle}" Classes="dim" />
             </StackPanel>
           </StackPanel>
+          <Border IsVisible="{Binding AgentUpdateAvailable}" Background="#263E9BEA" CornerRadius="6" Padding="10,6">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="{Binding AgentUpdateText}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding AgentUpdateNote}" Classes="dim" TextWrapping="Wrap"
+                           IsVisible="{Binding AgentUpdateNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </StackPanel>
+              <Button Grid.Column="1" Content="Update" Command="{Binding AgentUpdateCommand}" Classes="accent"
+                      ToolTip.Tip="Runs the update in a terminal; Restart afterwards to use the new version" />
+            </Grid>
+          </Border>
           <ItemsControl ItemsSource="{Binding Tabs}" IsVisible="{Binding ShowTabs}" Margin="0,4,0,0">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
@@ -99,8 +110,8 @@
           <Button Grid.Column="1" Content="⚙  Settings" Command="{Binding SettingsCommand}" />
           <TextBlock Grid.Column="2" Text="{Binding Status}" Classes="dim" VerticalAlignment="Center"
                      TextTrimming="CharacterEllipsis" Margin="6,0" />
-          <Button Grid.Column="3" Content="Restart" IsVisible="{Binding CanRestart}" Command="{Binding RestartCommand}"
-                  ToolTip.Tip="Restart Claude Code in its tmux pane and resume the same conversation" />
+          <Button Grid.Column="3" Content="{Binding RestartText}" IsVisible="{Binding CanRestart}" Command="{Binding RestartCommand}"
+                  ToolTip.Tip="{Binding RestartTip}" />
           <Button Grid.Column="4" Content="{Binding OpenText}" Command="{Binding OpenClaudeCommand}" Classes="accent" />
         </Grid>
       </Border>

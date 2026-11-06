@@ -2,6 +2,8 @@
 
 ## Unreleased (3.0.0)
 
+- Agents: **Start / Restart / Update**. The panel footer says *Start* or *Open* depending on whether the agent is running, and shows **Restart** while it runs (click twice: closes the agent's windows, restarts OpenCode's background service, and opens it again on its latest session). The menu has *Start / Open ▸* (with "(running)"), *Restart ▸* (running agents; Claude Code through tmux) and *Update <agent> to <version>*. Update checks (start, then every 6 h): pacman packages through `checkupdates` — Update opens a terminal with a full system update (`paru -Syu`, else `sudo pacman -Syu`), as Arch doesn't support updating one package alone; global npm packages through `npm view` — Update runs `npm install -g <package>@latest`. `tokenperch --agents --updates` prints it all.
+
 - Tray menu: **Show panel**, **Open ▸** Claude Code and every agent in use, **Waiting for you** (the sessions waiting, click one to open it), **Claude usage on claude.ai**, Refresh, Settings…, Quit. *Open ▸ Claude Code* always opens Claude Code (it used to open the agent of the last selected panel tab).
 - Settings: new **General** tab (start at login, which tab the panel opens on, update checks, the command that opens Claude Code) and **Agents** tab (Claude Code login moved here; per agent: found or not and where its data is, what *waiting for you* covers, switches for its tab and for counting it on the tray icon). Notifications are titled Token Perch.
 

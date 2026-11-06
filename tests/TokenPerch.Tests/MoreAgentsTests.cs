@@ -291,6 +291,35 @@ public class MoreAgentsTests : IDisposable
         Assert.Equal(SessionGroup.Done, r.Sessions.Single(s => s.Id == "d").Group);
     }
 
+    // ---- running programs and installs
+
+    [Theory]
+    [InlineData("opencode", true, "/usr/bin/opencode", ".")]
+    [InlineData("opencode", true, "/usr/bin/opencode", "/tmp/proj", "--session", "ses_1")]
+    [InlineData("opencode", false, "/usr/bin/opencode", "serve", "--service")]       // background service
+    [InlineData("opencode", false, "/usr/bin/konsole", "--separate", "-e", "/home/u/.local/bin/opencode")]   // its window
+    [InlineData("hermes", true, "/opt/hermes-agent/venv/bin/python", "/usr/bin/hermes", "--cli")]
+    [InlineData("hermes", false, "/opt/hermes-agent/venv/bin/python", "/usr/bin/hermes", "gateway", "run")]
+    [InlineData("codex", true, "node", "/usr/lib/node_modules/@openai/codex/bin/codex.js")]
+    [InlineData("codex", true, "/home/u/.local/bin/codex", "resume", "abc")]
+    [InlineData("pi", true, "node", "/home/u/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js")]
+    [InlineData("qwen", true, "/usr/bin/node", "/usr/lib/node_modules/@qwen-code/qwen-code/cli.js", "-c")]
+    [InlineData("goose", true, "/usr/local/bin/goose", "session")]
+    [InlineData("goose", false, "/usr/local/bin/goosed", "agent")]
+    [InlineData("pi", false, "/usr/bin/python3", "/usr/lib/foo/pip.py")]
+    public void AgentProcesses_RecogniseTheAgentsPrograms(string agent, bool expected, params string[] argv) =>
+        Assert.Equal(expected, AgentProcesses.Matches(agent, argv));
+
+    [Fact]
+    public void AgentUpdates_NpmPackageRoot()
+    {
+        var root = Path.Combine(_dir, "lib", "node_modules", "@openai", "codex");
+        Directory.CreateDirectory(Path.Combine(root, "bin"));
+        File.WriteAllText(Path.Combine(root, "package.json"), """{"version":"0.166.0"}""");
+        Assert.Equal(root.Replace('\\', '/'), AgentUpdates.PackageRoot(Path.Combine(root, "bin", "codex.js"), "@openai/codex"));
+        Assert.Null(AgentUpdates.PackageRoot("/usr/bin/codex", "@openai/codex"));
+    }
+
     [Fact]
     public void Toml_TablesStringsAndComments()
     {

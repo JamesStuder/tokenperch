@@ -91,6 +91,26 @@ public static class Terminal
         return Proc.Start(cmd, cwd) is null ? "Couldn't start a terminal" : null;
     }
 
+    /// <summary>Runs a command in a new terminal window that stays open afterwards, so its output (and
+    /// any password prompt) can be seen. Returns an error message or null.</summary>
+    public static string? RunVisible(IReadOnlyList<string> command, string title)
+    {
+        List<string>? cmd;
+        if (OperatingSystem.IsWindows())
+            cmd = Wrap(["cmd.exe", "/k", .. command], title);
+        else
+        {
+            static string Q(string a) => "'" + a.Replace("'", "'\\''") + "'";
+            var line = string.Join(' ', command.Select(Q))
+                + "; echo; printf 'Finished. Press Enter to close this window. '; read _";
+            cmd = Wrap(["sh", "-c", line], title);
+        }
+        if (cmd is null) return "No terminal found";
+        if (OperatingSystem.IsLinux() && Proc.Which("systemd-run") is { } run)
+            cmd = [run, "--user", "--scope", "--quiet", "--collect", .. cmd];
+        return Proc.Start(cmd) is null ? "Couldn't start a terminal" : null;
+    }
+
     public static void OpenUrl(string url)
     {
         if (OperatingSystem.IsWindows())
