@@ -13,7 +13,10 @@ namespace TokenPerch.Core;
 public sealed class CodexAgent : Agent
 {
     readonly string? _home;
-    readonly Dictionary<string, (DateTime Modified, long Length, List<TokenEntry> Entries)> _rollouts = new();
+    readonly Dictionary<string, (DateTime Modified, long Length, Rollout Data)> _rollouts = new();
+
+    /// <summary>A rollout file's token records, and whether it ends on a question to the user.</summary>
+    internal sealed record Rollout(List<TokenEntry> Entries, bool AsksUser);
 
     public CodexAgent(string? home = null) => _home = home;
 
@@ -74,7 +77,7 @@ public sealed class CodexAgent : Agent
     {
         if (StateDb() is not { } path) return ([], []);
         var sessions = new List<AgentSession>();
-        var rollouts = new List<string>();
+        var rollouts = new List<(string Id, string Path)>();
         using (var db = OpenDb(path))
         {
             var cols = Columns(db, "threads");
@@ -94,13 +97,14 @@ public sealed class CodexAgent : Agent
                 var title = new[] { S(r, 1), S(r, 2), S(r, 3) }.FirstOrDefault(x => x.Length > 0) ?? "(untitled)";
                 if (sessions.Count < 40)
                     sessions.Add(new AgentSession(S(r, 0), Format.OneLine(title, 120), S(r, 4), L(r, 5), SessionGroup.Done, S(r, 6), L(r, 7)));
-                if (S(r, 8) is { Length: > 0 } rollout) rollouts.Add(rollout);
+                if (S(r, 8) is { Length: > 0 } rollout) rollouts.Add((S(r, 0), rollout));
             }
         }
         MarkStatus(sessions);
         var entries = new List<TokenEntry>();
         var current = new HashSet<string>();
-        foreach (var file in rollouts)
+        var fresh = DateTime.UtcNow.AddMinutes(-30);
+        foreach (var (id, file) in rollouts)
         {
             FileInfo info;
             try { info = new FileInfo(file); if (!info.Exists) continue; }
@@ -108,7 +112,13 @@ public sealed class CodexAgent : Agent
             current.Add(file);
             if (!_rollouts.TryGetValue(file, out var c) || c.Modified != info.LastWriteTimeUtc || c.Length != info.Length)
                 _rollouts[file] = c = (info.LastWriteTimeUtc, info.Length, ParseRollout(file));
-            entries.AddRange(c.Entries);
+            entries.AddRange(c.Data.Entries);
+            // An unanswered question, written in the last 30 minutes (older: Codex was closed or crashed).
+            if (c.Data.AsksUser && info.LastWriteTimeUtc >= fresh)
+            {
+                int i = sessions.FindIndex(s => s.Id == id);
+                if (i >= 0) sessions[i] = sessions[i] with { Group = SessionGroup.Needs };
+            }
         }
         foreach (var gone in _rollouts.Keys.Where(k => !current.Contains(k)).ToList()) _rollouts.Remove(gone);
         return (entries, sessions);
@@ -157,10 +167,15 @@ public sealed class CodexAgent : Agent
     /// cached ones, so input = input − cached; reasoning is part of output_tokens. The repeated
     /// event_msg/token_count lines are ignored.
     /// </summary>
-    internal static List<TokenEntry> ParseRollout(string path)
+    /// <remarks>Questions: Codex writes the model's tool call (response_item / function_call, name
+    /// "request_user_input") before running it, and its function_call_output with the same call_id once
+    /// answered; a turn_complete / turn_aborted event also ends it. Command approvals are not written to
+    /// the rollout (Codex 0.166.0 keeps them in memory), so only questions can be seen.</remarks>
+    internal static Rollout ParseRollout(string path)
     {
         var list = new List<TokenEntry>();
         var model = "";
+        var asking = new HashSet<string>();
         try
         {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
@@ -168,13 +183,23 @@ public sealed class CodexAgent : Agent
             while (reader.ReadLine() is { } line)
             {
                 bool ctx = line.Contains("\"turn_context\"", StringComparison.Ordinal);
-                if (!ctx && !line.Contains("\"token_usage_record\"", StringComparison.Ordinal)) continue;
+                bool call = line.Contains("\"function_call", StringComparison.Ordinal)
+                    || line.Contains("\"turn_complete\"", StringComparison.Ordinal) || line.Contains("\"task_complete\"", StringComparison.Ordinal)
+                    || line.Contains("\"turn_aborted\"", StringComparison.Ordinal);
+                if (!ctx && !call && !line.Contains("\"token_usage_record\"", StringComparison.Ordinal)) continue;
                 try
                 {
                     using var doc = JsonDocument.Parse(line);
                     var root = doc.RootElement;
                     var type = root.TryGetProperty("type", out var ty) ? ty.GetString() : null;
                     if (!root.TryGetProperty("payload", out var p) || p.ValueKind != JsonValueKind.Object) continue;
+                    var ptype = p.TryGetProperty("type", out var pt) ? pt.GetString() : null;
+                    if (type == "response_item" && ptype == "function_call" && p.TryGetProperty("name", out var fn)
+                        && fn.GetString() == "request_user_input" && p.TryGetProperty("call_id", out var cid))
+                    { asking.Add(cid.ToString()); continue; }
+                    if (type == "response_item" && ptype == "function_call_output" && p.TryGetProperty("call_id", out var oid))
+                    { asking.Remove(oid.ToString()); continue; }
+                    if (type == "event_msg" && ptype is "turn_complete" or "task_complete" or "turn_aborted") { asking.Clear(); continue; }
                     if (type == "turn_context")
                     {
                         if (p.TryGetProperty("model", out var m) && m.GetString() is { Length: > 0 } id) model = id;
@@ -190,7 +215,7 @@ public sealed class CodexAgent : Agent
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
-        return list;
+        return new Rollout(list, asking.Count > 0);
     }
 
     static long N(JsonElement o, string name) =>

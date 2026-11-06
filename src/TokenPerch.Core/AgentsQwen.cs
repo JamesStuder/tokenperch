@@ -59,7 +59,7 @@ public sealed class QwenAgent : Agent
         return [new AgentModel("Default", model, url.Length > 0 ? $"{where} · {Host(url)}" : where)];
     }
 
-    internal sealed record QwenFile(string Id, string Title, string Cwd, string Model, List<(string Key, TokenEntry Tokens)> Usage);
+    internal sealed record QwenFile(string Id, string Title, string Cwd, string Model, List<(string Key, TokenEntry Tokens)> Usage, bool AsksUser = false);
 
     protected override (IEnumerable<TokenEntry> Tokens, List<AgentSession> Sessions) ReadHistory(DateTimeOffset since)
     {
@@ -96,8 +96,10 @@ public sealed class QwenAgent : Agent
                 if (seen.Add(key)) entries.Add(t);
             }
             var title = TitleFile(path) ?? f.Title;
+            // An unanswered question written in the last 30 minutes (older: Qwen was closed or crashed).
+            var group = f.AsksUser && info.LastWriteTimeUtc >= DateTime.UtcNow.AddMinutes(-30) ? SessionGroup.Needs : SessionGroup.Done;
             sessions.Add(new AgentSession(f.Id, title, f.Cwd, new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
-                SessionGroup.Done, f.Model, tokens));
+                group, f.Model, tokens));
         }
         foreach (var gone in _files.Keys.Where(k => !current.Contains(k)).ToList()) _files.Remove(gone);
         return (entries, sessions.OrderByDescending(s => s.Updated).Take(40).ToList());
@@ -120,6 +122,9 @@ public sealed class QwenAgent : Agent
     {
         string id = Path.GetFileNameWithoutExtension(path), cwd = "", firstUser = "", customTitle = "", model = "";
         var usage = new List<(string, TokenEntry)>();
+        // ask_user_question calls (the model's question to the user) without a tool_result yet. Tool
+        // approvals are not written to the session file (Qwen Code 0.26.8 keeps them in memory).
+        var asking = new HashSet<string>();
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using var reader = new StreamReader(fs, Encoding.UTF8);
         while (reader.ReadLine() is { } line)
@@ -137,6 +142,14 @@ public sealed class QwenAgent : Agent
                     && m.TryGetProperty("parts", out var parts) && parts.ValueKind == JsonValueKind.Array)
                     firstUser = string.Join(' ', parts.EnumerateArray().Where(p => p.ValueKind == JsonValueKind.Object).Select(p => Str(p, "text")).Where(t => t.Length > 0));
                 if (type == "assistant" && Str(e, "model") is { Length: > 0 } am) model = am;
+                if (type == "assistant" && e.TryGetProperty("message", out var am2) && am2.TryGetProperty("parts", out var ap)
+                    && ap.ValueKind == JsonValueKind.Array)
+                    foreach (var part in ap.EnumerateArray())
+                        if (part.ValueKind == JsonValueKind.Object && part.TryGetProperty("functionCall", out var fc)
+                            && Str(fc, "name") == "ask_user_question" && Str(fc, "id") is { Length: > 0 } qid)
+                            asking.Add(qid);
+                if (type == "tool_result" && e.TryGetProperty("toolCallResult", out var tr) && Str(tr, "callId") is { Length: > 0 } doneId)
+                    asking.Remove(doneId);
                 if (!e.TryGetProperty("systemPayload", out var sp) || sp.ValueKind != JsonValueKind.Object) continue;
                 if (subtype == "custom_title" && Str(sp, "customTitle") is { } ct) customTitle = ct;
                 if (subtype == "ui_telemetry" && sp.TryGetProperty("uiEvent", out var ev) && ev.ValueKind == JsonValueKind.Object
@@ -154,7 +167,7 @@ public sealed class QwenAgent : Agent
             catch (JsonException) { }
         }
         var title = customTitle.Length > 0 ? customTitle : firstUser.Length > 0 ? firstUser : "(untitled)";
-        return new QwenFile(id, Format.OneLine(title, 120), cwd, model, usage);
+        return new QwenFile(id, Format.OneLine(title, 120), cwd, model, usage, asking.Count > 0);
     }
 
     static string Str(JsonElement e, string name) =>

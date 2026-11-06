@@ -2,6 +2,8 @@
 
 ## Unreleased (3.0.0)
 
+- Tray icon: the Claude session-% badge is gone (and the icon is no longer dimmed when Claude Code isn't running). The top-left badge now counts sessions waiting for you across all agents: Claude Code needs-input, OpenCode pending permissions, Goose tool confirmations, Codex and Qwen questions. Waiting agent sessions show first in their tab with an orange **?**. The tooltip says which agents are waiting. Agent data refreshes every 15 s (3 s while the panel is open).
+
 - **Renamed from Claude Tray to Token Perch** (it covers more agents than Claude Code now): command `tokenperch`, repo `JamesStuder/tokenperch`, settings in `~/.config/tokenperch` / `%APPDATA%\TokenPerch`. On first start the Claude Tray settings are copied over; the installers remove a Claude Tray install (autostart, menu entry, binary).
 
 - Other agents: tabs for OpenCode, Hermes Agent, Codex CLI, Goose, Pi and Qwen Code once they have been used on this computer (a newly installed one appears within a minute), each with its sessions (click to resume in a terminal; ✕ → Remove hides one from the list without touching the agent's history), its models (default and backup / other configured ones) and its tokens by day and model, read from the agent's own database and config. `claude-tray --agents` prints the same in a terminal.

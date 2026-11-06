@@ -279,13 +279,55 @@ public sealed class OpenCodeAgent : SqliteAgent
         {
             long busy = L(r, 4), idle = L(r, 5);
             var outcome = S(r, 6);
-            var group = busy > idle ? SessionGroup.Working
+            // Busy with no activity for 30 minutes: OpenCode was closed mid-turn and never marked it idle.
+            bool stale = DateTimeOffset.Now.ToUnixTimeMilliseconds() - L(r, 3) > 30 * 60_000L;
+            var group = busy > idle && !stale ? SessionGroup.Working
                 : outcome.Contains("fail", StringComparison.OrdinalIgnoreCase) || outcome.Contains("error", StringComparison.OrdinalIgnoreCase)
                     ? SessionGroup.Failed : SessionGroup.Done;
             var title = S(r, 1);
             list.Add(new AgentSession(S(r, 0), title.Length > 0 ? title : "(untitled)", S(r, 2), L(r, 3), group, S(r, 8), L(r, 7)));
         }
+        MarkWaiting(list);
         return list;
+    }
+
+    string StateDir => _dataDir is not null ? Path.Combine(_dataDir, "state") : Path.Combine(Xdg("XDG_STATE_HOME", Path.Combine(".local", "state")), "opencode");
+
+    /// <summary>
+    /// A busy session may be waiting for a permission answer, which only the running OpenCode service
+    /// knows (the database shows the tool as "running" either way). The service's address and local
+    /// password are in &lt;state&gt;/opencode/service.json; GET /api/session/&lt;id&gt;/permission lists the
+    /// pending requests. Read-only; no service → nothing changes. Checked against OpenCode 2.2.5.
+    /// </summary>
+    void MarkWaiting(List<AgentSession> sessions)
+    {
+        if (!sessions.Any(s => s.Group == SessionGroup.Working)) return;
+        var path = Path.Combine(StateDir, "service.json");
+        string url, password;
+        try
+        {
+            if (!File.Exists(path)) return;
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            url = doc.RootElement.GetProperty("url").GetString() ?? "";
+            password = doc.RootElement.TryGetProperty("password", out var p) ? p.GetString() ?? "" : "";
+            if (!url.StartsWith("http://127.0.0.1", StringComparison.Ordinal) && !url.StartsWith("http://localhost", StringComparison.Ordinal)) return;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or KeyNotFoundException or InvalidOperationException) { return; }
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic",
+            Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("opencode:" + password)));
+        for (int i = 0; i < sessions.Count; i++)
+        {
+            if (sessions[i].Group != SessionGroup.Working) continue;
+            try
+            {
+                var body = http.GetStringAsync($"{url}/api/session/{Uri.EscapeDataString(sessions[i].Id)}/permission").GetAwaiter().GetResult();
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.TryGetProperty("data", out var d) && d.ValueKind == JsonValueKind.Array && d.GetArrayLength() > 0)
+                    sessions[i] = sessions[i] with { Group = SessionGroup.Needs };
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException) { return; }
+        }
     }
 
     public override List<string> ResumeArgs(AgentSession s) =>

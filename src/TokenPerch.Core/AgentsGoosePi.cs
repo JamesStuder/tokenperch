@@ -139,7 +139,54 @@ public sealed class GooseAgent : SqliteAgent
             var title = new[] { S(r, 1), S(r, 2) }.FirstOrDefault(x => x.Length > 0) ?? "(untitled)";
             list.Add(new AgentSession(S(r, 0), Format.OneLine(title, 120), S(r, 3), updated.ToUnixTimeMilliseconds(), SessionGroup.Done, S(r, 6), L(r, 7)));
         }
-        return list.OrderByDescending(s => s.Updated).Take(40).ToList();
+        list = list.OrderByDescending(s => s.Updated).Take(40).ToList();
+        MarkWaiting(db, list);
+        return list;
+    }
+
+    /// <summary>
+    /// Goose stores a tool confirmation request as an assistant message part
+    /// {"type":"actionRequired","data":{"actionType":"toolConfirmation","id":…}} before asking, and the
+    /// answer as {"actionType":"toolConfirmationResponse","id":…} (or the tool's {"type":"toolResponse","id":…}).
+    /// A request without an answer means the session waits for the user. Only sessions active in the last
+    /// 30 minutes are checked, so a request left behind by a crash doesn't wait forever.
+    /// </summary>
+    static void MarkWaiting(SqliteConnection db, List<AgentSession> sessions)
+    {
+        long fresh = DateTimeOffset.Now.AddMinutes(-30).ToUnixTimeMilliseconds();
+        for (int i = 0; i < sessions.Count; i++)
+        {
+            if (sessions[i].Updated < fresh) continue;
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = """
+                SELECT content_json FROM messages
+                WHERE session_id = $id AND (content_json LIKE '%actionRequired%' OR content_json LIKE '%toolResponse%')
+                ORDER BY id
+                """;
+            cmd.Parameters.AddWithValue("$id", sessions[i].Id);
+            var pending = new HashSet<string>();
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(r.GetString(0));
+                    if (doc.RootElement.ValueKind != JsonValueKind.Array) continue;
+                    foreach (var part in doc.RootElement.EnumerateArray())
+                    {
+                        var type = part.TryGetProperty("type", out var t) ? t.GetString() : null;
+                        if (type == "toolResponse" && part.TryGetProperty("id", out var rid)) pending.Remove(rid.ToString());
+                        if (type != "actionRequired" || !part.TryGetProperty("data", out var d)) continue;
+                        var action = d.TryGetProperty("actionType", out var a) ? a.GetString() : null;
+                        var id = d.TryGetProperty("id", out var di) ? di.ToString() : "";
+                        if (action == "toolConfirmation") pending.Add(id);
+                        else if (action == "toolConfirmationResponse") pending.Remove(id);
+                    }
+                }
+                catch (JsonException) { }
+            }
+            if (pending.Count > 0) sessions[i] = sessions[i] with { Group = SessionGroup.Needs };
+        }
     }
 
     public override List<string> ResumeArgs(AgentSession s) => ["session", "--resume", "--session-id", s.Id];

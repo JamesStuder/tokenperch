@@ -20,7 +20,7 @@ public partial class App : Application
     SettingsWindow? _settings;
     AppConfig _cfg = null!;
     DispatcherTimer _sessionsTimer = null!;
-    (bool, double?, double, int) _drawn = (false, -1, -1, -1);
+    int _drawn = -1;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -56,7 +56,7 @@ public partial class App : Application
 
         _tray = new TrayIcon
         {
-            Icon = TrayIconRenderer.Render(false, null, 0, 0),
+            Icon = TrayIconRenderer.Render(0),
             ToolTipText = "Claude Code",
             Menu = menu,
             IsVisible = true,
@@ -65,8 +65,8 @@ public partial class App : Application
         TrayIcon.SetIcons(this, [_tray]);
 
         Every(TimeSpan.FromSeconds(2), () => _ = _vm.PollRunningAsync());
-        Every(TimeSpan.FromSeconds(60), () => { _ = _vm.RefreshUsageAsync(); _ = _vm.RefreshAgentsAsync(); });
-        _sessionsTimer = Every(TimeSpan.FromSeconds(15), () => _ = _vm.RefreshSessionsAsync());
+        Every(TimeSpan.FromSeconds(60), () => _ = _vm.RefreshUsageAsync());
+        _sessionsTimer = Every(TimeSpan.FromSeconds(15), () => { _ = _vm.RefreshSessionsAsync(); _ = _vm.RefreshAgentsAsync(); });
         Every(TimeSpan.FromSeconds(30), () => { if (_panel?.IsVisible == true) _vm.Tick(); });
         // Updates: first check a minute after start, then every 6 hours.
         DispatcherTimer.RunOnce(() => { if (_cfg.CheckForUpdates) _ = _vm.CheckForUpdateAsync(); }, TimeSpan.FromMinutes(1));
@@ -138,10 +138,10 @@ public partial class App : Application
 
     void UpdateTray()
     {
-        var state = (_vm.Running, _vm.SessionPercent, _vm.MaxPercent, _vm.NeedsCount);
+        var state = _vm.NeedsCount;
         _tray.ToolTipText = _vm.ToolTip;
         if (state == _drawn) return;
         _drawn = state;
-        _tray.Icon = TrayIconRenderer.Render(_vm.Running, _vm.SessionPercent, _vm.MaxPercent, _vm.NeedsCount);
+        _tray.Icon = TrayIconRenderer.Render(_vm.NeedsCount);
     }
 }

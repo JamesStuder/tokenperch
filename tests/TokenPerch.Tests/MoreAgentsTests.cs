@@ -239,6 +239,58 @@ public class MoreAgentsTests : IDisposable
         Assert.Equal(["--resume", "s-1"], a.ResumeArgs(s));
     }
 
+    // ---- waiting for the user
+
+    [Fact]
+    public void Codex_UnansweredQuestion_MarksWaiting_AnsweredDoesNot()
+    {
+        var dir = Path.Combine(_dir, "codex-q");
+        Directory.CreateDirectory(dir);
+        var t = Iso(DateTimeOffset.Now);
+        string Call(string id) => $$$"""{"timestamp":"{{{t}}}","type":"response_item","payload":{"type":"function_call","name":"request_user_input","call_id":"{{{id}}}","arguments":"{}"}}""";
+        string Out(string id) => $$$"""{"timestamp":"{{{t}}}","type":"response_item","payload":{"type":"function_call_output","call_id":"{{{id}}}","output":"yes"}}""";
+        var waiting = Path.Combine(dir, "a.jsonl");
+        File.WriteAllLines(waiting, [Call("c1"), Out("c1"), Call("c2")]);
+        var answered = Path.Combine(dir, "b.jsonl");
+        File.WriteAllLines(answered, [Call("c1"), $$$"""{"timestamp":"{{{t}}}","type":"event_msg","payload":{"type":"turn_aborted"}}"""]);
+        Assert.True(CodexAgent.ParseRollout(waiting).AsksUser);
+        Assert.False(CodexAgent.ParseRollout(answered).AsksUser);
+    }
+
+    [Fact]
+    public void Qwen_UnansweredAskUserQuestion_MarksWaiting()
+    {
+        var path = Path.Combine(_dir, "q.jsonl");
+        string Line(object o) => JsonSerializer.Serialize(o);
+        object Ask(string id) => new { sessionId = "s", type = "assistant", model = "m",
+            message = new { role = "model", parts = new object[] { new { functionCall = new { id, name = "ask_user_question", args = new { } } } } } };
+        object Result(string id) => new { sessionId = "s", type = "tool_result", toolCallResult = new { callId = id, status = "success" } };
+        File.WriteAllLines(path, [Line(Ask("a")), Line(Result("a")), Line(Ask("b"))]);
+        Assert.True(QwenAgent.ParseFile(path).AsksUser);
+        File.WriteAllLines(path, [Line(Ask("a")), Line(Result("a"))]);
+        Assert.False(QwenAgent.ParseFile(path).AsksUser);
+    }
+
+    [Fact]
+    public void Goose_UnansweredToolConfirmation_MarksWaiting()
+    {
+        var root = Path.Combine(_dir, "goose-wait");
+        Directory.CreateDirectory(Path.Combine(root, "data", "sessions"));
+        long now = DateTimeOffset.Now.ToUnixTimeSeconds();
+        string Confirm(string id) => $$$"""[{"type":"actionRequired","data":{"actionType":"toolConfirmation","id":"{{{id}}}","toolName":"shell","arguments":{},"prompt":null}}]""";
+        string Answer(string id) => $$$"""[{"type":"actionRequired","data":{"actionType":"toolConfirmationResponse","id":"{{{id}}}","permission":"allow_once"}}]""";
+        Exec(Path.Combine(root, "data", "sessions", "sessions.db"),
+            "CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '', session_type TEXT NOT NULL DEFAULT 'user', working_dir TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, total_tokens INTEGER, parent_session_id TEXT, archived_at TIMESTAMP)",
+            "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, role TEXT NOT NULL, content_json TEXT NOT NULL, created_timestamp INTEGER NOT NULL)",
+            "INSERT INTO sessions (id, name, working_dir) VALUES ('w', 'waits', '/tmp'), ('d', 'done', '/tmp')",
+            $"INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES ('w','assistant','{Confirm("1")}',{now}), ('w','user','{Answer("1")}',{now}), ('w','assistant','{Confirm("2")}',{now})",
+            $"INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES ('d','assistant','{Confirm("1")}',{now}), ('d','user','[{{\"type\":\"toolResponse\",\"id\":\"1\"}}]',{now})");
+        var r = new GooseAgent(root).Read(DateTimeOffset.Now);
+        Assert.Null(r.Error);
+        Assert.Equal(SessionGroup.Needs, r.Sessions.Single(s => s.Id == "w").Group);
+        Assert.Equal(SessionGroup.Done, r.Sessions.Single(s => s.Id == "d").Group);
+    }
+
     [Fact]
     public void Toml_TablesStringsAndComments()
     {

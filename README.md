@@ -15,9 +15,13 @@ executable per platform; no .NET install needed on the target machine.
 
 ## What it shows
 
-- **Tray icon** with badges: current 5-hour session usage in percent (bottom right), coloured
-  by your highest limit (green, orange from 70 %, red from 90 %), and the number of background
-  sessions waiting for input (top left). Dimmed while Claude Code isn't running.
+- **Tray icon**: the owl, with one badge top-left — how many sessions are waiting for you, across
+  all agents. *Waiting* means: Claude Code background sessions that need input; OpenCode sessions
+  with a pending permission request (asked from the running OpenCode service, using its local
+  `service.json`); Goose sessions with an unanswered tool confirmation; Codex CLI and Qwen Code
+  sessions with an unanswered question from the agent (their command approvals aren't written to
+  disk, so they can't be seen). Hermes keeps approvals in memory and Pi has none, so they never
+  count. Hover for which agents are waiting and Claude's usage; the numbers are in the panel.
 - **Left click** opens the panel:
   - **Left column — background sessions**: *Needs input*, *Working*, *Completed* (newest 10,
     *Show all* for the rest) and *Failed*, each with its last status line or result and how long

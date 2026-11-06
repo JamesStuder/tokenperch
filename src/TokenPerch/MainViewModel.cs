@@ -49,13 +49,25 @@ public sealed class MainViewModel : ObservableObject
     public bool Running { get; private set; }
     public double? SessionPercent { get; private set; }
     public double MaxPercent { get; private set; }
-    public int NeedsCount { get; private set; }
+    /// <summary>Sessions waiting for the user, all agents together (the tray's badge).</summary>
+    public int NeedsCount => _claudeNeeds + _agentNeeds.Values.Sum();
+    int _claudeNeeds;
+    Dictionary<string, int> _agentNeeds = new();
 
-    public string ToolTip =>
-        (Running ? "Claude Code running" : "Claude Code not running")
-        + (NeedsCount > 0 ? $"\n{NeedsCount} session{(NeedsCount > 1 ? "s" : "")} need input" : "")
-        + (SessionPercent is { } s ? $"\nSession {s:0}% · weekly {MaxPercent:0}% max" : "")
-        + (_update is { } u ? $"\nUpdate available: {u.Version.ToString(3)}" : "");
+    public string ToolTip
+    {
+        get
+        {
+            var waiting = new List<string>();
+            if (_claudeNeeds > 0) waiting.Add($"Claude Code {_claudeNeeds}");
+            waiting.AddRange(_agentNeeds.Where(kv => kv.Value > 0).Select(kv => $"{kv.Key} {kv.Value}"));
+            return "Token Perch"
+                + (waiting.Count > 0 ? "\nWaiting for you: " + string.Join(", ", waiting) : "")
+                + "\nClaude Code " + (Running ? "running" : "not running")
+                + (SessionPercent is { } s ? $" · session {s:0}%, weekly {MaxPercent:0}% max" : "")
+                + (_update is { } u ? $"\nUpdate available: {u.Version.ToString(3)}" : "");
+        }
+    }
 
     // ---- header / footer
     string _plan = "";
@@ -212,6 +224,14 @@ public sealed class MainViewModel : ObservableObject
             }
             _reports.Clear();
             foreach (var (a, r) in result) _reports[a.Id] = r;
+            // Waiting sessions of every agent count on the tray icon (not the ones removed from the list).
+            var needs = result.ToDictionary(x => x.a.Name,
+                x => x.r.Sessions.Count(s => s.Group == SessionGroup.Needs && !_hidden.IsHidden(x.a.Id, s.Id)));
+            if (!needs.OrderBy(kv => kv.Key).SequenceEqual(_agentNeeds.OrderBy(kv => kv.Key)))
+            {
+                _agentNeeds = needs;
+                TrayStateChanged?.Invoke();
+            }
             ShowAgent();
         }
         catch (Exception e)
@@ -236,18 +256,20 @@ public sealed class MainViewModel : ObservableObject
         double modelPeak = Math.Max(1, r.Tokens.Models.Select(m => m.Total).DefaultIfEmpty(0).Max());
         AgentTokenModels = r.Tokens.Models.Select(m => new ModelRow(m.Name, Format.Human(m.Total), m.Total / modelPeak * 100,
             $"in {Format.Human(m.Input)} · out {Format.Human(m.Output)} · cache {Format.Human(m.Cache)}")).ToList();
-        var visible = r.Sessions.Where(s => !_hidden.IsHidden(a.Id, s.Id)).ToList();
+        var visible = r.Sessions.Where(s => !_hidden.IsHidden(a.Id, s.Id)).OrderBy(s => s.Group == SessionGroup.Needs ? 0 : 1).ToList();
         var key = a.Id + "\n" + string.Join('\n', visible.Select(s => $"{s.Id}|{s.Group}|{s.Title}|{s.Updated}|{s.Tokens}"));
         if (key != _agentSessionsKey)
         {
             _agentSessionsKey = key;
             AgentSessions = visible.Select(s => new AgentSessionVM(s, s.Group switch
             {
+                SessionGroup.Needs => "?",
                 SessionGroup.Working => "▶",
                 SessionGroup.Failed => "✕",
                 _ => "✓",
             }, s.Group switch
             {
+                SessionGroup.Needs => Palette.Orange,
                 SessionGroup.Working => Palette.Blue,
                 SessionGroup.Failed => Palette.Red,
                 _ => Palette.Green,
@@ -271,6 +293,7 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
         ShowAgent();
+        _ = RefreshAgentsAsync();   // a hidden waiting session no longer counts on the tray icon
     }
     string _agentSessionsKey = "";
 
@@ -378,9 +401,9 @@ public sealed class MainViewModel : ObservableObject
             g.SetAll(r.Sessions.Where(s => s.Group == g.Group).Select(s => new SessionVM(s, this, g.Glyph, g.Brush)).ToList());
         NoSessions = r.Sessions.Count == 0;
         int needs = r.Sessions.Count(s => s.Group == SessionGroup.Needs);
-        if (needs != NeedsCount)
+        if (needs != _claudeNeeds)
         {
-            NeedsCount = needs;
+            _claudeNeeds = needs;
             TrayStateChanged?.Invoke();
         }
     }

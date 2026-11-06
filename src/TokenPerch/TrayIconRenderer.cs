@@ -7,23 +7,20 @@ using Avalonia.Platform;
 
 namespace TokenPerch;
 
-/// <summary>Draws the tray icon: the app icon (dimmed when Claude Code isn't running), the session
-/// usage badge bottom-right (coloured by the highest limit) and the needs-input count top-left.</summary>
+/// <summary>Draws the tray icon: the app icon, and top-left the number of sessions (any agent) waiting
+/// for the user. Usage numbers live in the panel and the tooltip.</summary>
 public static class TrayIconRenderer
 {
     const int Size = 64;
     static readonly Bitmap Base = new(AssetLoader.Open(new Uri("avares://tokenperch/Assets/tokenperch.png")));
     static readonly Typeface Bold = new(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
 
-    public static WindowIcon Render(bool running, double? sessionPercent, double maxPercent, int needs)
+    public static WindowIcon Render(int needs)
     {
         using var rtb = new RenderTargetBitmap(new PixelSize(Size, Size), new Vector(96, 96));
         using (var ctx = rtb.CreateDrawingContext())
         {
-            using (ctx.PushOpacity(running ? 1.0 : 0.45))
-                ctx.DrawImage(Base, new Rect(0, 0, Size, Size));
-            if (sessionPercent is { } p)
-                Badge(ctx, $"{p:0}", Palette.LevelColor(maxPercent), right: true, height: 30);
+            ctx.DrawImage(Base, new Rect(0, 0, Size, Size));
             if (needs > 0)
                 Badge(ctx, needs.ToString(CultureInfo.InvariantCulture), Color.Parse("#F5A524"), right: false, height: 28);
         }
