@@ -26,9 +26,11 @@ executable per platform; no .NET install needed on the target machine.
     *Tokens by model* (today, with the input / output / cache split), *Pace* (straight-line
     projection to each reset) and *Model* buttons.
   - Footer: **Refresh**, **Restart** (tmux only), **Open / Start Claude Code**.
-- **Other agents**: when [OpenCode](https://opencode.ai) or
-  [Hermes Agent](https://github.com/NousResearch/hermes-agent) is installed, the panel gets a tab
-  for each next to *Claude Code*. A tab shows that agent's sessions from the last 7 days (click
+- **Other agents**: the panel gets a tab next to *Claude Code* for each of these once it has been
+  used on this computer (checked every minute, so a newly installed one shows up by itself):
+  [OpenCode](https://opencode.ai), [Hermes Agent](https://github.com/NousResearch/hermes-agent),
+  [Codex CLI](https://github.com/openai/codex), [Goose](https://github.com/aaif-goose/goose),
+  [Pi](https://github.com/earendil-works/pi) and [Qwen Code](https://github.com/QwenLM/qwen-code). A tab shows that agent's sessions from the last 7 days (click
   one to open it again in a terminal; **✕** then **Remove** hides it from the list — the agent
   keeps the session, its tokens still count, and the list is kept in `hidden-sessions.json` next
   to `config.json`), its models (default, backup / other configured models,
@@ -59,6 +61,10 @@ executable per platform; no .NET install needed on the target machine.
 | Sessions | `claude agents --json --all`, plus `jobs/<id>/state.json` for the status line and result. |
 | OpenCode | Its database `~/.local/share/opencode/opencode.db` (opened read-only): tokens of every reply plus the session totals, sessions; models from `~/.config/opencode/opencode.json(c)`. `XDG_DATA_HOME` / `XDG_CONFIG_HOME` are honoured. |
 | Hermes | Its database `~/.hermes/state.db` (read-only; `HERMES_HOME` is honoured): tokens per session and model, counted on the day the session was last active; models from `config.yaml` (`model:` and `fallback_providers:`). |
+| Codex CLI | `~/.codex` (`CODEX_HOME`): sessions and totals from `state_N.sqlite` (read-only), tokens per response from each session's rollout file (`token_usage_record` lines); model from `config.toml`. |
+| Goose | `~/.local/share/goose/sessions/sessions.db` (`%APPDATA%\Block\goose\data` on Windows, `GOOSE_PATH_ROOT`; read-only): tokens per model call from `usage_ledger`; model from `config.yaml` and `GOOSE_*` variables. |
+| Pi | `~/.pi/agent/sessions/**/*.jsonl` (`PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`): tokens per reply; forked sessions are counted once; models from `settings.json` and `models.json`. |
+| Qwen Code | `~/.qwen/projects/*/chats/*.jsonl` (`QWEN_HOME`): tokens per API call (`qwen-code.api_response` records, which include background calls); model from `settings.json`. |
 
 `CLAUDE_CONFIG_DIR` is honoured.
 

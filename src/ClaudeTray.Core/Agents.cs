@@ -16,9 +16,9 @@ public sealed record AgentReport(List<AgentModel> Models, TokenReport Tokens, Li
 public sealed record TokenEntry(DateTimeOffset Time, string Model, long Input, long Output, long Cache);
 
 /// <summary>
-/// Another coding agent on this computer (OpenCode, Hermes Agent). Everything is read from the agent's
-/// own files, read-only: its config for the models, its SQLite database for sessions and tokens.
-/// An agent shows up in the panel only when its database exists.
+/// Another coding agent on this computer (OpenCode, Hermes Agent, …). Everything is read from the
+/// agent's own files, read-only: its config for the models, its database or session files for
+/// sessions and tokens. An agent shows up in the panel only once its data exists (it has been used).
 /// </summary>
 public abstract class Agent
 {
@@ -26,8 +26,9 @@ public abstract class Agent
     public abstract string Name { get; }
     /// <summary>The agent's command (looked up on PATH when opening it).</summary>
     public abstract string Command { get; }
-    public abstract string DatabasePath { get; }
-    public bool Installed => File.Exists(DatabasePath);
+    /// <summary>A file or directory that exists once the agent has been used.</summary>
+    public abstract string DataPath { get; }
+    public bool Installed => File.Exists(DataPath) || Directory.Exists(DataPath);
 
     public AgentReport Read(DateTimeOffset now, int days = 7)
     {
@@ -43,23 +44,34 @@ public abstract class Agent
         {
             var midnight = new DateTimeOffset(now.ToLocalTime().Date, now.ToLocalTime().Offset);
             var first = midnight.AddDays(-(days - 1));
-            using var db = Open();
-            var tokens = TokenTotals.Build(ReadTokens(db, first), now, days, DisplayModel);
-            var sessions = ReadSessions(db, first);
-            return new AgentReport(models, tokens, sessions, error);
+            var (entries, sessions) = ReadHistory(first);
+            return new AgentReport(models, TokenTotals.Build(entries, now, days, DisplayModel), sessions, error);
         }
-        catch (SqliteException e)
+        catch (Exception e) when (e is SqliteException or IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or FormatException)
         {
-            Log.Error($"{Id} database", e);
+            Log.Error($"{Id} history", e);
             return new AgentReport(models, TokenTotals.Build([], now, days, DisplayModel), [],
                 $"Couldn't read {Name}'s history (a newer {Name} version may have changed it)");
         }
     }
 
-    /// <summary>Opens the database read-only. The agent may be writing to it at the same time (WAL).</summary>
-    SqliteConnection Open()
+    /// <summary>Token records and sessions since <paramref name="since"/> (local midnight, 7 days back).</summary>
+    protected abstract (IEnumerable<TokenEntry> Tokens, List<AgentSession> Sessions) ReadHistory(DateTimeOffset since);
+
+    protected abstract List<AgentModel> ReadModels();
+
+    /// <summary>Command that opens a session again (run in a terminal).</summary>
+    public abstract List<string> ResumeArgs(AgentSession s);
+
+    /// <summary>Model ids are shown as they are: local models have no friendly names.</summary>
+    protected virtual string DisplayModel(string id) => string.IsNullOrEmpty(id) ? "?" : id;
+
+    public static IReadOnlyList<Agent> All { get; } = [new OpenCodeAgent(), new HermesAgent(), new CodexAgent(), new GooseAgent(), new PiAgent(), new QwenAgent()];
+
+    /// <summary>Opens a database read-only. The agent may be writing to it at the same time (WAL).</summary>
+    protected static SqliteConnection OpenDb(string path)
     {
-        var cs = new SqliteConnectionStringBuilder { DataSource = DatabasePath, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString();
+        var cs = new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString();
         var db = new SqliteConnection(cs);
         db.Open();
         using var cmd = db.CreateCommand();
@@ -68,17 +80,16 @@ public abstract class Agent
         return db;
     }
 
-    protected abstract List<AgentModel> ReadModels();
-    protected abstract IEnumerable<TokenEntry> ReadTokens(SqliteConnection db, DateTimeOffset since);
-    protected abstract List<AgentSession> ReadSessions(SqliteConnection db, DateTimeOffset since);
-
-    /// <summary>Command that opens a session again (run in a terminal).</summary>
-    public abstract List<string> ResumeArgs(AgentSession s);
-
-    /// <summary>Model ids are shown as they are: local models have no friendly names.</summary>
-    protected virtual string DisplayModel(string id) => string.IsNullOrEmpty(id) ? "?" : id;
-
-    public static IReadOnlyList<Agent> All { get; } = [new OpenCodeAgent(), new HermesAgent()];
+    /// <summary>Column names of a table (agents add columns over time: query only what exists).</summary>
+    protected static HashSet<string> Columns(SqliteConnection db, string table)
+    {
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = $"SELECT name FROM pragma_table_info('{table}')";
+        using var r = cmd.ExecuteReader();
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (r.Read()) set.Add(r.GetString(0));
+        return set;
+    }
 
     protected static string Xdg(string variable, string fallback) =>
         Environment.GetEnvironmentVariable(variable) is { Length: > 0 } v ? v : Path.Combine(Paths.Home, fallback);
@@ -90,6 +101,22 @@ public abstract class Agent
     /// <summary>"http://127.0.0.1:11434/v1" → "127.0.0.1:11434".</summary>
     internal static string Host(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var u) ? (u.IsDefaultPort ? u.Host : $"{u.Host}:{u.Port}") : url;
+}
+
+/// <summary>An agent that keeps its history in one SQLite database.</summary>
+public abstract class SqliteAgent : Agent
+{
+    public abstract string DatabasePath { get; }
+    public override string DataPath => DatabasePath;
+
+    protected override (IEnumerable<TokenEntry> Tokens, List<AgentSession> Sessions) ReadHistory(DateTimeOffset since)
+    {
+        using var db = OpenDb(DatabasePath);
+        return (ReadTokens(db, since).ToList(), ReadSessions(db, since));
+    }
+
+    protected abstract IEnumerable<TokenEntry> ReadTokens(SqliteConnection db, DateTimeOffset since);
+    protected abstract List<AgentSession> ReadSessions(SqliteConnection db, DateTimeOffset since);
 }
 
 /// <summary>Tokens per day and per model, like Claude Code's (TokenStats), from any agent's records.</summary>
@@ -131,7 +158,7 @@ public static class TokenTotals
 /// OpenCode (opencode.ai): ~/.local/share/opencode/opencode.db and ~/.config/opencode/opencode.json(c).
 /// Tokens come from each assistant message, so days and models are exact.
 /// </summary>
-public sealed class OpenCodeAgent : Agent
+public sealed class OpenCodeAgent : SqliteAgent
 {
     readonly string? _dataDir, _configDir;
     public OpenCodeAgent(string? dataDir = null, string? configDir = null) { _dataDir = dataDir; _configDir = configDir; }
@@ -270,7 +297,7 @@ public sealed class OpenCodeAgent : Agent
 /// Hermes keeps tokens per session and model (not per message), so a session counts on the day it was
 /// last active.
 /// </summary>
-public sealed class HermesAgent : Agent
+public sealed class HermesAgent : SqliteAgent
 {
     readonly string? _home;
     public HermesAgent(string? home = null) => _home = home;
