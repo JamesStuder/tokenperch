@@ -55,18 +55,72 @@ public sealed class ColorSetting : ObservableObject
     }
 }
 
-/// <summary>The Settings window: Claude Code login, appearance, support, about.</summary>
+/// <summary>One agent on Settings → Agents: found or not, where its data is, its tab and badge switches.</summary>
+public sealed class AgentSettingVM : ObservableObject
+{
+    readonly AppConfig _cfg;
+    readonly Action _changed;
+
+    public AgentSettingVM(Agent agent, AppConfig cfg, Action changed)
+    {
+        Agent = agent;
+        _cfg = cfg;
+        _changed = changed;
+        Found = agent.Installed;
+    }
+
+    public Agent Agent { get; }
+    public string Name => Agent.Name;
+    public bool Found { get; }
+    public string Status => Found ? "Found — data in " + Short(Agent.DataPath) : "Not found yet — looks for " + Short(Agent.DataPath);
+    public string Waiting => Agent.WaitingDetection.Length > 0
+        ? "Waiting for you: " + Agent.WaitingDetection
+        : "Waiting for you: can't be seen from outside " + Agent.Name;
+    public bool CanCount => ShowTab && Agent.WaitingDetection.Length > 0;
+
+    public bool ShowTab
+    {
+        get => !_cfg.HiddenAgents.Contains(Agent.Id);
+        set
+        {
+            _cfg.HiddenAgents.Remove(Agent.Id);
+            if (!value) _cfg.HiddenAgents.Add(Agent.Id);
+            Raise(); Raise(nameof(CanCount));
+            _changed();
+        }
+    }
+
+    public bool CountWaiting
+    {
+        get => !_cfg.NoBadgeAgents.Contains(Agent.Id);
+        set
+        {
+            _cfg.NoBadgeAgents.Remove(Agent.Id);
+            if (!value) _cfg.NoBadgeAgents.Add(Agent.Id);
+            Raise();
+            _changed();
+        }
+    }
+
+    static string Short(string p) => p.StartsWith(Paths.Home, StringComparison.Ordinal) ? "~" + p[Paths.Home.Length..] : p;
+}
+
+/// <summary>The Settings window: general, agents (incl. Claude Code login), appearance, support, about.</summary>
 public sealed class SettingsViewModel : ObservableObject
 {
     readonly AppConfig _cfg;
     readonly Action _appearanceChanged;
     readonly Func<Task<string>> _checkUpdates;
+    readonly Action _agentsChanged;
 
-    public SettingsViewModel(AppConfig cfg, Action appearanceChanged, Func<Task<string>> checkUpdates)
+    public SettingsViewModel(AppConfig cfg, Action appearanceChanged, Func<Task<string>> checkUpdates, Action agentsChanged)
     {
         _cfg = cfg;
         _checkUpdates = checkUpdates;
         _appearanceChanged = appearanceChanged;
+        _agentsChanged = agentsChanged;
+        Agents = Agent.All.Select(a => new AgentSettingVM(a, cfg, AgentsSaved)).OrderByDescending(a => a.Found).ToList();
+        _startAtLogin = Autostart.Enabled;
         Colors =
         [
             new("Background", Color.Parse("#202020"), () => cfg.Colors.Background, v => cfg.Colors.Background = v, ColorsChanged),
@@ -85,7 +139,66 @@ public sealed class SettingsViewModel : ObservableObject
         OpenLogCommand = new RelayCommand(_ => OpenFile(Log.FilePath));
     }
 
-    // ---- account
+    // ---- general
+
+    bool _startAtLogin;
+    string _generalStatus = "";
+    public string GeneralStatus { get => _generalStatus; private set => Set(ref _generalStatus, value); }
+    public bool StartAtLogin
+    {
+        get => _startAtLogin;
+        set
+        {
+            var err = Autostart.Set(value);
+            if (err is null) _startAtLogin = value;
+            GeneralStatus = err ?? (value ? "Token Perch starts when you log in." : "Token Perch no longer starts at login.");
+            Raise();
+        }
+    }
+
+    /// <summary>What "Open ▸ Claude Code" runs (config openCommand). Empty = a terminal running claude.</summary>
+    public string ClaudeOpenCommand
+    {
+        get => _cfg.OpenCommand;
+        set { _cfg.OpenCommand = value.Trim(); Raise(); Save(); }
+    }
+
+    public string[] PanelTabs { get; } = ["Claude Code", "The tab I used last"];
+    public int PanelTabIndex
+    {
+        get => _cfg.PanelTab == "last" ? 1 : 0;
+        set { _cfg.PanelTab = value == 1 ? "last" : "claude"; Raise(); Save(); }
+    }
+
+    // ---- agents
+
+    public List<AgentSettingVM> Agents { get; }
+
+    public bool CountClaudeWaiting
+    {
+        get => !_cfg.NoBadgeAgents.Contains("claude");
+        set
+        {
+            _cfg.NoBadgeAgents.Remove("claude");
+            if (!value) _cfg.NoBadgeAgents.Add("claude");
+            Raise();
+            AgentsSaved();
+        }
+    }
+
+    void AgentsSaved()
+    {
+        Save();
+        _agentsChanged();
+    }
+
+    void Save()
+    {
+        try { _cfg.Save(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Error("save config", e); }
+    }
+
+    // ---- Claude Code login
 
     string _authTitle = "Checking…";
     public string AuthTitle { get => _authTitle; private set => Set(ref _authTitle, value); }

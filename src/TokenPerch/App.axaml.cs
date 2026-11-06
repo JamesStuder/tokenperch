@@ -45,22 +45,16 @@ public partial class App : Application
         _vm.RequestHide += () => _panel?.HidePanel();
         Notifier.PanelOpen = () => _panel?.IsVisible == true;
 
-        var menu = new NativeMenu();
-        menu.Items.Add(Item("Open Claude Code", () => _vm.OpenClaude()));
-        menu.Items.Add(Item("Show usage panel", TogglePanel));
-        menu.Items.Add(Item("Usage on claude.ai", () => Terminal.OpenUrl("https://claude.ai/settings/usage")));
-        menu.Items.Add(Item("Refresh", () => { _ = _vm.RefreshUsageAsync(force: true); _ = _vm.RefreshSessionsAsync(); }));
-        menu.Items.Add(new NativeMenuItemSeparator());
-        menu.Items.Add(Item("Settings…", ShowSettings));
-        menu.Items.Add(Item("Quit Token Perch", () => desktop.Shutdown()));
-
+        _desktop = desktop;
         _tray = new TrayIcon
         {
             Icon = TrayIconRenderer.Render(0),
-            ToolTipText = "Claude Code",
-            Menu = menu,
+            ToolTipText = "Token Perch",
+            Menu = _menu,
             IsVisible = true,
         };
+        BuildMenu();
+        _vm.MenuChanged += BuildMenu;
         _tray.Clicked += (_, _) => TogglePanel();
         TrayIcon.SetIcons(this, [_tray]);
 
@@ -73,6 +67,44 @@ public partial class App : Application
         var updates = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
         updates.Tick += (_, _) => { if (_cfg.CheckForUpdates) _ = _vm.CheckForUpdateAsync(); };
         updates.Start();
+    }
+
+    readonly NativeMenu _menu = new();
+    IClassicDesktopStyleApplicationLifetime _desktop = null!;
+
+    /// <summary>
+    /// The right-click menu: Show panel · Open ▸ (Claude Code and each agent) · Waiting for you (the
+    /// sessions waiting, click opens one) · Claude usage on claude.ai · Refresh · Settings… · Quit.
+    /// Rebuilt when the agents or the waiting sessions change.
+    /// </summary>
+    void BuildMenu()
+    {
+        _menu.Items.Clear();
+        _menu.Items.Add(Item("Show panel", TogglePanel));
+        var open = new NativeMenu();
+        open.Items.Add(Item("Claude Code", () => _vm.OpenClaude()));
+        foreach (var a in _vm.MenuAgents) open.Items.Add(Item(a.Name, () => _vm.OpenAgent(a)));
+        _menu.Items.Add(new NativeMenuItem("Open") { Menu = open });
+
+        var waiting = _vm.Waiting;
+        if (waiting.Count > 0)
+        {
+            _menu.Items.Add(new NativeMenuItemSeparator());
+            _menu.Items.Add(new NativeMenuItem($"Waiting for you ({waiting.Count})") { IsEnabled = false });
+            foreach (var w in waiting.Take(10)) _menu.Items.Add(Item("? " + w.Label, w.Open));
+        }
+
+        _menu.Items.Add(new NativeMenuItemSeparator());
+        _menu.Items.Add(Item("Claude usage on claude.ai", () => Terminal.OpenUrl("https://claude.ai/settings/usage")));
+        _menu.Items.Add(Item("Refresh", () =>
+        {
+            _ = _vm.RefreshUsageAsync(force: true);
+            _ = _vm.RefreshSessionsAsync();
+            _ = _vm.RefreshAgentsAsync();
+        }));
+        _menu.Items.Add(new NativeMenuItemSeparator());
+        _menu.Items.Add(Item("Settings…", ShowSettings));
+        _menu.Items.Add(Item("Quit Token Perch", () => _desktop.Shutdown()));
     }
 
     static NativeMenuItem Item(string header, Action action)
@@ -109,7 +141,7 @@ public partial class App : Application
         _panel?.HidePanel();
         if (_settings is null)
         {
-            var vm = new SettingsViewModel(_cfg, AppearanceChanged, _vm.CheckForUpdateAsync);
+            var vm = new SettingsViewModel(_cfg, AppearanceChanged, _vm.CheckForUpdateAsync, _vm.AgentSettingsChanged);
             _settings = new SettingsWindow { DataContext = vm };
             _settings.Closed += (_, _) => _settings = null;
             _ = vm.RefreshAuthAsync();

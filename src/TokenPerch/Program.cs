@@ -89,7 +89,7 @@ static class Cli
             Console.WriteLine("tokenperch            start the tray icon\n" +
                               "tokenperch --text     print plan limits and today's tokens\n" +
                               "tokenperch --sessions list background sessions\n" +
-                              "tokenperch --agents   other agents (OpenCode, Hermes): models, tokens, sessions\n" +
+                              "tokenperch --agents   other agents (OpenCode, Hermes, Codex, Goose, Pi, Qwen): models, tokens, sessions\n" +
                               "tokenperch --update   install the latest release from GitHub, if newer\n" +
                               "tokenperch --version\n\n" +
                               $"Settings: {AppConfig.FilePath}\nLog: {Log.FilePath}");

@@ -106,9 +106,9 @@ public static class Updater
             Log.Info($"update: running {script}");
             int? pid = OperatingSystem.IsWindows()
                 ? Proc.Start(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
-                              .. (AutostartEnabled() ? Array.Empty<string>() : ["-NoAutostart"])],
+                              .. (Autostart.Enabled ? Array.Empty<string>() : ["-NoAutostart"])],
                              cwd: Path.GetDirectoryName(script), hideWindow: true)
-                : Proc.Start([.. LinuxDetach(), "sh", script, .. (AutostartEnabled() ? Array.Empty<string>() : ["--no-autostart"])],
+                : Proc.Start([.. LinuxDetach(), "sh", script, .. (Autostart.Enabled ? Array.Empty<string>() : ["--no-autostart"])],
                              cwd: Path.GetDirectoryName(script));
             return pid is null ? "Couldn't start the installer." : null;
         }
@@ -136,15 +136,4 @@ public static class Updater
             ? [run, "--user", "--scope", "--quiet", "--collect", $"--unit=tokenperch-update-{Environment.ProcessId}"]
             : Proc.Which("setsid") is { } setsid ? [setsid] : [];
 
-    /// <summary>Keeps the user's start-at-login choice: the installers turn it on unless told not to.</summary>
-    static bool AutostartEnabled()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-            return key?.GetValue("TokenPerch") is not null;
-        }
-        var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME") is { Length: > 0 } x ? x : Path.Combine(Paths.Home, ".config");
-        return File.Exists(Path.Combine(xdg, "autostart", "tokenperch.desktop"));
-    }
 }

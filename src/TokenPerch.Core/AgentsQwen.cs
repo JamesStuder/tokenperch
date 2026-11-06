@@ -19,6 +19,7 @@ public sealed class QwenAgent : Agent
     public override string Id => "qwen";
     public override string Name => "Qwen Code";
     public override string Command => "qwen";
+    public override string WaitingDetection => "Questions from Qwen (tool approvals are not saved where Token Perch can see them)";
 
     string Home => _home ?? (Environment.GetEnvironmentVariable("QWEN_HOME") is { Length: > 0 } h ? h : Path.Combine(Paths.Home, ".qwen"));
     /// <summary>Session files move with QWEN_RUNTIME_DIR (settings' advanced.runtimeOutputDir is not followed).</summary>

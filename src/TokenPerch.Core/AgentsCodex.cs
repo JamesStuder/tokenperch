@@ -23,6 +23,7 @@ public sealed class CodexAgent : Agent
     public override string Id => "codex";
     public override string Name => "Codex";
     public override string Command => "codex";
+    public override string WaitingDetection => "Questions from Codex (command approvals are not saved where Token Perch can see them)";
     string Home => _home ?? (Environment.GetEnvironmentVariable("CODEX_HOME") is { Length: > 0 } h ? h : Path.Combine(Paths.Home, ".codex"));
 
     /// <summary>The SQLite files live in config.toml's sqlite_home, else $CODEX_SQLITE_HOME, else the Codex home.</summary>

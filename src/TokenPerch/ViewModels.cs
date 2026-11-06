@@ -46,6 +46,9 @@ public sealed record ModelRow(string Name, string Total, double Value, string Sp
 
 public sealed record AgentModelRow(string Role, string Model, string Where);
 
+/// <summary>A session waiting for the user, as the tray menu lists it ("OpenCode · Fix build").</summary>
+public sealed record WaitingItem(string Label, Action Open);
+
 /// <summary>A tab at the top of the panel: Claude Code, or another agent (OpenCode, Hermes).</summary>
 public sealed class AgentTabVM(string name, Agent? agent, ICommand select) : ObservableObject
 {

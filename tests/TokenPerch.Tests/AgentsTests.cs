@@ -186,6 +186,20 @@ public class AgentsTests : IDisposable
     }
 
     [Fact]
+    public void Autostart_WritesAndRemovesTheDesktopEntry()
+    {
+        if (OperatingSystem.IsWindows()) return;   // the registry path is not tested here
+        var cfg = Path.Combine(_dir, "xdg-config");
+        var file = Path.Combine(cfg, "autostart", "tokenperch.desktop");
+        Assert.Null(Autostart.Set(true, "/opt/tp/tokenperch", cfg));
+        var text = File.ReadAllText(file);
+        Assert.Contains("Exec=/opt/tp/tokenperch", text);
+        Assert.Contains("X-GNOME-Autostart-enabled=true", text);
+        Assert.Null(Autostart.Set(false, "/opt/tp/tokenperch", cfg));
+        Assert.False(File.Exists(file));
+    }
+
+    [Fact]
     public void Installed_OnlyWhenDatabaseExists() =>
         Assert.False(new HermesAgent(Path.Combine(_dir, "missing")).Installed);
 }

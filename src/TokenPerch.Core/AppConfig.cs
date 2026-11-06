@@ -41,6 +41,15 @@ public sealed class AppConfig
     /// <summary>Look for new releases on GitHub (at start, then every 6 hours).</summary>
     public bool CheckForUpdates { get; set; } = true;
 
+    /// <summary>Agents (ids: opencode, hermes, codex, goose, pi, qwen) whose panel tab is hidden.</summary>
+    public List<string> HiddenAgents { get; set; } = [];
+
+    /// <summary>Agents (ids, "claude" for Claude Code) whose waiting sessions don't count on the tray icon.</summary>
+    public List<string> NoBadgeAgents { get; set; } = [];
+
+    /// <summary>Which tab the panel shows when it opens: "claude" or "last" (the one used last).</summary>
+    public string PanelTab { get; set; } = "claude";
+
     /// <summary>"system", "light" or "dark".</summary>
     public string Theme { get; set; } = "system";
 

@@ -18,6 +18,7 @@ public sealed class GooseAgent : SqliteAgent
     public override string Id => "goose";
     public override string Name => "Goose";
     public override string Command => "goose";
+    public override string WaitingDetection => "Tool confirmations";
 
     /// <summary>GOOSE_PATH_ROOT (absolute) → &lt;root&gt;/data and &lt;root&gt;/config; else XDG on Linux,
     /// %APPDATA%\Block\goose\{data,config} on Windows.</summary>

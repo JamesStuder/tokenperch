@@ -29,7 +29,7 @@ public sealed class MainViewModel : ObservableObject
         ];
         RefreshCommand = new RelayCommand(_ => { _ = RefreshUsageAsync(force: true); _ = RefreshAgentsAsync(); });
         RestartCommand = new RelayCommand(_ => Restart());
-        OpenClaudeCommand = new RelayCommand(_ => OpenClaude());
+        OpenClaudeCommand = new RelayCommand(_ => OpenSelected());
         UsagePageCommand = new RelayCommand(_ => { RequestHide?.Invoke(); Terminal.OpenUrl("https://claude.ai/settings/usage"); });
         SettingsCommand = new RelayCommand(_ => OpenSettings?.Invoke());
         UpdateCommand = new RelayCommand(_ => _ = UpdateAsync());
@@ -38,6 +38,7 @@ public sealed class MainViewModel : ObservableObject
         _selectTab = new RelayCommand(p => { if (p is AgentTabVM t) SelectTab(t); });
         _openAgentSession = new RelayCommand(p => { if (p is AgentSessionVM s) OpenAgentSession(s); });
         Tabs = [new AgentTabVM("Claude Code", null, _selectTab) { Selected = true }];
+        _claudeNeedsCounted = !cfg.NoBadgeAgents.Contains("claude");
     }
 
     /// <summary>Running / percentages / needs-input count changed: redraw the tray icon.</summary>
@@ -50,7 +51,8 @@ public sealed class MainViewModel : ObservableObject
     public double? SessionPercent { get; private set; }
     public double MaxPercent { get; private set; }
     /// <summary>Sessions waiting for the user, all agents together (the tray's badge).</summary>
-    public int NeedsCount => _claudeNeeds + _agentNeeds.Values.Sum();
+    public int NeedsCount => (_claudeNeedsCounted ? _claudeNeeds : 0) + _agentNeeds.Values.Sum();
+    bool _claudeNeedsCounted;
     int _claudeNeeds;
     Dictionary<string, int> _agentNeeds = new();
 
@@ -203,6 +205,31 @@ public sealed class MainViewModel : ObservableObject
         if (tab.Agent is not null) _ = RefreshAgentsAsync();
     }
 
+    // ---- tray menu: the agents to open and the sessions waiting for the user
+    List<Agent> _menuAgents = [];
+    List<WaitingItem> _claudeWaiting = [], _agentWaiting = [];
+    string _menuKey = "";
+    /// <summary>The menu's agents or waiting sessions changed: the tray rebuilds its menu.</summary>
+    public event Action? MenuChanged;
+    public IReadOnlyList<Agent> MenuAgents => _menuAgents;
+    public IReadOnlyList<WaitingItem> Waiting => [.. _claudeWaiting, .. _agentWaiting];
+
+    void MenuMaybeChanged()
+    {
+        var key = string.Join('|', _menuAgents.Select(a => a.Id)) + "#" + string.Join('|', Waiting.Select(w => w.Label));
+        if (key == _menuKey) return;
+        _menuKey = key;
+        MenuChanged?.Invoke();
+    }
+
+    /// <summary>Settings → Agents changed: re-read so tabs, badge and menu follow.</summary>
+    public void AgentSettingsChanged()
+    {
+        _claudeNeedsCounted = !_cfg.NoBadgeAgents.Contains("claude");
+        TrayStateChanged?.Invoke();
+        _ = RefreshAgentsAsync();
+    }
+
     /// <summary>Reads every installed agent off the UI thread (a few small SQLite queries each).</summary>
     public async Task RefreshAgentsAsync()
     {
@@ -210,7 +237,9 @@ public sealed class MainViewModel : ObservableObject
         try
         {
             var now = DateTimeOffset.Now;
-            var result = await Task.Run(() => Agent.All.Where(a => a.Installed).Select(a => (a, r: a.Read(now))).ToList());
+            // Agents switched off in Settings → Agents are not read at all (no tab, no badge, no menu entry).
+            var result = await Task.Run(() => Agent.All.Where(a => a.Installed && !_cfg.HiddenAgents.Contains(a.Id))
+                .Select(a => (a, r: a.Read(now))).ToList());
             var ids = string.Join(',', result.Select(x => x.a.Id));
             if (ids != string.Join(',', Tabs.Skip(1).Select(t => t.Agent!.Id)))
             {
@@ -224,14 +253,21 @@ public sealed class MainViewModel : ObservableObject
             }
             _reports.Clear();
             foreach (var (a, r) in result) _reports[a.Id] = r;
-            // Waiting sessions of every agent count on the tray icon (not the ones removed from the list).
-            var needs = result.ToDictionary(x => x.a.Name,
-                x => x.r.Sessions.Count(s => s.Group == SessionGroup.Needs && !_hidden.IsHidden(x.a.Id, s.Id)));
+            // Waiting sessions (not the ones removed from the list); the badge leaves out agents switched off for it.
+            var waiting = result.SelectMany(x => x.r.Sessions
+                .Where(s => s.Group == SessionGroup.Needs && !_hidden.IsHidden(x.a.Id, s.Id))
+                .Select(s => (Agent: x.a, Session: s))).ToList();
+            var needs = result.Where(x => !_cfg.NoBadgeAgents.Contains(x.a.Id))
+                .ToDictionary(x => x.a.Name, x => waiting.Count(w => w.Agent == x.a));
             if (!needs.OrderBy(kv => kv.Key).SequenceEqual(_agentNeeds.OrderBy(kv => kv.Key)))
             {
                 _agentNeeds = needs;
                 TrayStateChanged?.Invoke();
             }
+            _menuAgents = result.Select(x => x.a).ToList();
+            _agentWaiting = waiting.Select(w => new WaitingItem($"{w.Agent.Name} · {Format.OneLine(w.Session.Title, 50)}",
+                () => { RequestHide?.Invoke(); Background(() => Terminal.OpenAgent(w.Agent, w.Session) ?? ""); })).ToList();
+            MenuMaybeChanged();
             ShowAgent();
         }
         catch (Exception e)
@@ -356,6 +392,8 @@ public sealed class MainViewModel : ObservableObject
     public void PanelClosed()
     {
         foreach (var g in Groups) g.ResetShowAll();
+        // Settings → General: the panel opens on Claude Code unless "the tab used last" is chosen.
+        if (_cfg.PanelTab != "last" && !IsClaude) SelectTab(Tabs[0]);
     }
 
     void ApplyUsage(UsageSnapshot u)
@@ -406,15 +444,35 @@ public sealed class MainViewModel : ObservableObject
             _claudeNeeds = needs;
             TrayStateChanged?.Invoke();
         }
+        _claudeWaiting = r.Sessions.Where(s => s.Group == SessionGroup.Needs)
+            .Select(s => new WaitingItem($"Claude Code · {Format.OneLine(s.Name, 50)}", () =>
+            {
+                RequestHide?.Invoke();
+                Background(() => Terminal.OpenSession(_cfg, _windows, s.Id, s.Name) ?? "");
+            })).ToList();
+        MenuMaybeChanged();
     }
 
     // ---- actions
 
+    /// <summary>Always Claude Code (tray menu); the panel's footer button opens the selected tab's agent.</summary>
     public void OpenClaude()
     {
         RequestHide?.Invoke();
-        if (SelectedAgent is { } a) { Background(() => Terminal.OpenAgent(a) ?? ""); return; }
         Background(() => Terminal.OpenClaude(_cfg) ?? "");
+    }
+
+    /// <summary>The panel footer: the agent of the selected tab.</summary>
+    void OpenSelected()
+    {
+        if (SelectedAgent is { } a) OpenAgent(a);
+        else OpenClaude();
+    }
+
+    public void OpenAgent(Agent a)
+    {
+        RequestHide?.Invoke();
+        Background(() => Terminal.OpenAgent(a) ?? "");
     }
 
     public void OpenSession(SessionVM s)
@@ -472,6 +530,6 @@ static class Notifier
     {
         if (PanelOpen() || OperatingSystem.IsWindows() || message == "Refreshed") return;
         if (Proc.Which("notify-send") is { } ns)
-            Proc.Start([ns, "-a", "Token Perch", "-i", "tokenperch", "Claude Code", message]);
+            Proc.Start([ns, "-a", "Token Perch", "-i", "tokenperch", "Token Perch", message]);
     }
 }

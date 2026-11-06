@@ -28,6 +28,9 @@ public abstract class Agent
     public abstract string Command { get; }
     /// <summary>A file or directory that exists once the agent has been used.</summary>
     public abstract string DataPath { get; }
+
+    /// <summary>What "waiting for you" covers for this agent ("" = it can't be seen from outside).</summary>
+    public virtual string WaitingDetection => "";
     public bool Installed => File.Exists(DataPath) || Directory.Exists(DataPath);
 
     public AgentReport Read(DateTimeOffset now, int days = 7)
@@ -166,6 +169,7 @@ public sealed class OpenCodeAgent : SqliteAgent
     public override string Id => "opencode";
     public override string Name => "OpenCode";
     public override string Command => "opencode";
+    public override string WaitingDetection => "Permission requests (asked from the running OpenCode service)";
     string DataDir => _dataDir ?? Path.Combine(Xdg("XDG_DATA_HOME", Path.Combine(".local", "share")), "opencode");
     string ConfigDir => _configDir ?? Path.Combine(Xdg("XDG_CONFIG_HOME", ".config"), "opencode");
     public override string DatabasePath => Path.Combine(DataDir, "opencode.db");
