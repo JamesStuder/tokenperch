@@ -6,7 +6,7 @@
     <LangVersion>latest</LangVersion>
     <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</Version>
     <Company>Studer Works, LLC</Company>
-    <Product>Claude Tray</Product>
+    <Product>Token Perch</Product>
     <Copyright>© Studer Works, LLC</Copyright>
   </PropertyGroup>
 </Project>

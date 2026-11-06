@@ -8,11 +8,11 @@ rids=("$@")
 [ ${#rids[@]} -gt 0 ] || rids=(linux-x64 win-x64)
 for rid in "${rids[@]}"; do
     rm -rf "dist/$rid"
-    dotnet publish src/ClaudeTray -c Release -r "$rid" --self-contained \
+    dotnet publish src/TokenPerch -c Release -r "$rid" --self-contained \
         -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -o "dist/$rid" --nologo -v quiet
     case "$rid" in
         win-*) cp packaging/windows/*.ps1 "dist/$rid/" ;;
-        *)     cp packaging/linux/install.sh packaging/linux/uninstall.sh src/ClaudeTray/Assets/claude-tray.png "dist/$rid/" ;;
+        *)     cp packaging/linux/install.sh packaging/linux/uninstall.sh src/TokenPerch/Assets/tokenperch.png "dist/$rid/" ;;
     esac
     rm -f "dist/$rid"/*.pdb
     echo "dist/$rid: $(du -sh "dist/$rid" | cut -f1)"

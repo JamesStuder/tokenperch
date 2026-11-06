@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## Unreleased (3.0.0)
+
+- **Renamed from Claude Tray to Token Perch** (it covers more agents than Claude Code now): command `tokenperch`, repo `JamesStuder/tokenperch`, settings in `~/.config/tokenperch` / `%APPDATA%\TokenPerch`. On first start the Claude Tray settings are copied over; the installers remove a Claude Tray install (autostart, menu entry, binary).
 
 - Other agents: tabs for OpenCode, Hermes Agent, Codex CLI, Goose, Pi and Qwen Code once they have been used on this computer (a newly installed one appears within a minute), each with its sessions (click to resume in a terminal; ✕ → Remove hides one from the list without touching the agent's history), its models (default and backup / other configured ones) and its tokens by day and model, read from the agent's own database and config. `claude-tray --agents` prints the same in a terminal.
 

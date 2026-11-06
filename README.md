@@ -1,12 +1,14 @@
-# Claude Tray
+# Token Perch
 
-A system-tray app for **Claude Code** on Linux and Windows: your background sessions (which
-ones need input, which are done) and where you stand on your plan — how much of each limit is
-used, when it resets, whether you're on pace to run out, and how many tokens you used today
-and this week.
+A system-tray app for your **coding agents** on Linux and Windows. For **Claude Code**: your
+background sessions (which ones need input, which are done) and where you stand on your plan —
+how much of each limit is used, when it resets, whether you're on pace to run out, and how many
+tokens you used today and this week. For **OpenCode, Hermes Agent, Codex CLI, Goose, Pi and Qwen
+Code**: a tab each with their sessions, models and tokens, as soon as you use them.
 
-Version 2 is a rewrite: the KDE Plasma widget (v1, still on the `v1.x` tags) became a standalone
-app that runs on any Linux desktop with a system tray and on Windows.
+Token Perch was called **Claude Tray** until version 3 (and was a KDE Plasma widget in v1, still
+on the `v1.x` tags). Installing 3.x removes a Claude Tray install and takes over its settings.
+Not affiliated with Anthropic or any of the agents' makers.
 
 C# / .NET 10 with [Avalonia](https://avaloniaui.net) 12 for the UI. One self-contained
 executable per platform; no .NET install needed on the target machine.
@@ -38,10 +40,10 @@ executable per platform; no .NET install needed on the target machine.
   agents themselves. The footer button opens the agent of the selected tab.
 - **Right click** (menu): Open Claude Code, the usage panel, Usage on claude.ai, Refresh,
   Settings file, Quit.
-- Terminal summary: `claude-tray --text`; other agents: `claude-tray --agents`
+- Terminal summary: `tokenperch --text`; other agents: `tokenperch --agents`
 - **Updates**: when a new release is out, the panel says so; **Update** downloads it from GitHub,
   checks it against the release's SHA256SUMS, runs its installer and restarts the app. Turn the
-  check off in *Settings → About*. From a terminal: `claude-tray --update`.
+  check off in *Settings → About*. From a terminal: `tokenperch --update`.
 
 ### Model buttons
 
@@ -50,7 +52,7 @@ executable per platform; no .NET install needed on the target machine.
   conversation (e.g. after an update).
 - Otherwise (always on Windows): the button sets `"model"` in Claude Code's user
   `settings.json`, the model every **new** session starts with. **Account default** removes
-  it. The first change backs the file up to `settings.json.claude-tray.bak`.
+  it. The first change backs the file up to `settings.json.tokenperch.bak`.
 
 ## Where the data comes from
 
@@ -77,7 +79,7 @@ executable per platform; no .NET install needed on the target machine.
 packaging/linux/install.sh           # --no-autostart to not start it at login
 ```
 
-Installs to `~/.local/lib/claude-tray` (+ `~/.local/bin/claude-tray`), an app-menu entry and an
+Installs to `~/.local/lib/tokenperch` (+ `~/.local/bin/tokenperch`), an app-menu entry and an
 autostart entry, then starts it. Remove with `packaging/linux/uninstall.sh`.
 
 The tray icon uses StatusNotifierItem: KDE Plasma and most desktops show it; GNOME needs the
@@ -92,14 +94,14 @@ Copy `dist\win-x64` to the machine, then in PowerShell:
 .\install.ps1                        # -NoAutostart to not start it at sign-in
 ```
 
-Installs to `%LOCALAPPDATA%\Programs\ClaudeTray`, adds a Start-menu shortcut and a sign-in
+Installs to `%LOCALAPPDATA%\Programs\TokenPerch`, adds a Start-menu shortcut and a sign-in
 entry (HKCU Run), then starts it. Remove with `.\uninstall.ps1`. No admin rights needed.
 
 Sessions open in Windows Terminal (`wt.exe`) when it's installed, else in a console window.
 
 ## Configure
 
-`config.json` — `~/.config/claude-tray/` on Linux, `%APPDATA%\ClaudeTray\` on Windows. Written
+`config.json` — `~/.config/tokenperch/` on Linux, `%APPDATA%\TokenPerch\` on Windows. Written
 with the defaults on first start; tray menu → *Settings file…* opens it. Restart the app after
 editing.
 
@@ -111,7 +113,7 @@ editing.
 | `claudeCommand` | *(empty)* | The Claude Code executable. Empty = `~/.local/bin/claude` (native installer), else `claude` on PATH |
 | `models` | current models | The model buttons: `{ "name": …, "id": … }` |
 
-Log: `~/.cache/claude-tray/claude-tray.log` (Linux), `%LOCALAPPDATA%\ClaudeTray\cache\claude-tray.log` (Windows).
+Log: `~/.cache/tokenperch/tokenperch.log` (Linux), `%LOCALAPPDATA%\TokenPerch\cache\tokenperch.log` (Windows).
 
 ## Build
 
@@ -120,20 +122,20 @@ Needs the .NET 10 SDK.
 ```sh
 dotnet test                          # unit tests
 ./build.sh                           # dist/linux-x64 and dist/win-x64 (self-contained, single file)
-dotnet run --project src/ClaudeTray  # run from source
+dotnet run --project src/TokenPerch  # run from source
 ```
 
 | Path | |
 |---|---|
-| `src/ClaudeTray.Core` | Everything but the UI: limits, tokens, sessions, terminals, tmux, KWin, settings.json |
-| `src/ClaudeTray` | Avalonia app: tray icon, panel, `--text` mode |
-| `tests/ClaudeTray.Tests` | xUnit tests for the Core parsing and formatting |
+| `src/TokenPerch.Core` | Everything but the UI: limits, tokens, sessions, terminals, tmux, KWin, settings.json |
+| `src/TokenPerch` | Avalonia app: tray icon, panel, `--text` mode |
+| `tests/TokenPerch.Tests` | xUnit tests for the Core parsing and formatting |
 | `packaging/` | Per-user install / uninstall scripts for Linux and Windows |
 
 ## Support
 
-Questions, bugs and ideas: [open an issue](https://github.com/JamesStuder/claude-tray/issues/new)
-(also *Settings → Support* in the app). Claude Tray is free and open source (MIT), with nothing held back.
+Questions, bugs and ideas: [open an issue](https://github.com/JamesStuder/tokenperch/issues/new)
+(also *Settings → Support* in the app). Token Perch is free and open source (MIT), with nothing held back.
 
 ## Upgrading from the v1 Plasma widget
 

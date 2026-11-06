@@ -1,9 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/ClaudeTray.Core/ClaudeTray.Core.csproj" />
-    <Project Path="src/ClaudeTray/ClaudeTray.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/ClaudeTray.Tests/ClaudeTray.Tests.csproj" />
-  </Folder>
-</Solution>

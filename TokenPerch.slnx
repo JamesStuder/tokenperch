@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TokenPerch.Core/TokenPerch.Core.csproj" />
+    <Project Path="src/TokenPerch/TokenPerch.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TokenPerch.Tests/TokenPerch.Tests.csproj" />
+  </Folder>
+</Solution>
